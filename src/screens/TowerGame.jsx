@@ -133,18 +133,18 @@ export default function TowerGame() {
     return () => { cancelAnimationFrame(frame); clearTimeout(t) }
   }, [phase, questionIndex, myAnswer, partnerAnswer])
 
-  // Sync tower fall → failed phase
-  useEffect(() => {
-    if (towerResult !== 'fallen' || phase !== 'dropping') return
-    setPhase('failed', true)
-  }, [towerResult, phase, setPhase])
-
-  // Derived
+  // Derived — declared before effects that depend on them
   const currentQuestion = questionIds
     ? allQuestions.find(q => q.id === questionIds[questionIndex])
     : null
   const myAnswer      = me?.getState(`answer_${questionIndex}`)
   const partnerAnswer = partner?.getState(`answer_${questionIndex}`)
+
+  // Sync tower fall → failed phase
+  useEffect(() => {
+    if (towerResult !== 'fallen' || phase !== 'dropping') return
+    setPhase('failed', true)
+  }, [towerResult, phase, setPhase])
 
   const getDeviation      = () => (!myAnswer || !partnerAnswer) ? 0 : Math.abs(myAnswer - partnerAnswer) / 4
   const getAlignmentScore = () => Math.round((1 - getDeviation()) * 100)
