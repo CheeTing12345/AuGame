@@ -18,7 +18,7 @@ export default function CreateJoin() {
       await insertCoin({ maxPlayersPerRoom: 2, skipLobby: true })
       myPlayer().setState('name', playerName)
       navigate('/lobby')
-    } catch (err) {
+    } catch {
       setError('Could not create room. Try again.')
       setLoading(false)
     }
@@ -49,68 +49,82 @@ export default function CreateJoin() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <motion.p
-          animate={{ opacity: [0.4, 1, 0.4] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-          className="text-gray-500 text-sm"
-        >
+      <div className="screen">
+        <p className="pulse" style={{ color: 'var(--text-2)', fontSize: 14 }}>
           Connecting...
-        </motion.p>
+        </p>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6">
+    <div className="screen">
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-sm"
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        style={{ width: '100%', maxWidth: 400 }}
       >
-        {/* Title */}
-        <div className="text-center mb-8">
-          <p className="text-gray-500 text-sm tracking-wider mb-5">Two players</p>
-          <h1 className="font-serif text-5xl text-white leading-tight mb-6">
-            Alignment<br />
-            <span className="italic">Tower</span>
-          </h1>
-          <p className="text-gray-500 text-sm">Signed in as</p>
-          <p className="text-white font-semibold mt-1">{playerName}</p>
+        {/* Header */}
+        <div style={{ marginBottom: 32 }}>
+          <h2 className="font-serif" style={{ fontSize: 32, color: 'var(--text-1)', marginBottom: 6 }}>
+            Let's play
+          </h2>
+          <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
+            Playing as <span style={{ color: 'var(--text-1)', fontWeight: 600 }}>{playerName}</span>
+          </p>
         </div>
 
         {/* Error */}
         {error && (
           <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-red-400 text-sm text-center mb-5"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              color: 'var(--danger)',
+              fontSize: 13,
+              textAlign: 'center',
+              marginBottom: 16,
+              padding: '10px 16px',
+              background: 'rgba(239,68,68,0.1)',
+              borderRadius: 12,
+              border: '1px solid rgba(239,68,68,0.2)',
+            }}
           >
             {error}
           </motion.p>
         )}
 
         {/* Create room */}
-        <motion.button
-          whileTap={{ scale: 0.98 }}
-          onClick={handleCreateRoom}
-          className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base mb-6"
-        >
-          Create room
-        </motion.button>
+        <div style={{ marginBottom: 24 }}>
+          <p style={{ color: 'var(--text-2)', fontSize: 13, marginBottom: 10 }}>
+            Start a new session
+          </p>
+          <motion.button
+            className="btn-primary"
+            whileTap={{ scale: 0.98 }}
+            onClick={handleCreateRoom}
+          >
+            Create room
+          </motion.button>
+        </div>
 
         {/* Divider */}
-        <div className="flex items-center gap-4 mb-6">
-          <div className="flex-1 h-px bg-gray-800" />
-          <span className="text-gray-500 text-sm">or</span>
-          <div className="flex-1 h-px bg-gray-800" />
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 24,
+        }}>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          <span style={{ color: 'var(--text-3)', fontSize: 13 }}>or join one</span>
+          <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
         </div>
 
         {/* Join with code */}
-        <div className="space-y-4">
-          <p className="text-white font-semibold text-base mb-1">Join with code</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
           <input
+            className="input"
             type="text"
             value={roomCode}
             onChange={(e) => {
@@ -119,23 +133,27 @@ export default function CreateJoin() {
             }}
             onKeyDown={(e) => e.key === 'Enter' && handleJoinRoom()}
             placeholder="ROOM CODE"
-            className="w-full bg-[#111] text-white rounded-2xl px-6 py-4 text-base placeholder-gray-600 focus:outline-none uppercase tracking-widest text-center font-mono"
             maxLength={6}
+            style={{
+              textAlign: 'center',
+              letterSpacing: '0.2em',
+              fontFamily: 'monospace',
+              fontSize: 22,
+              fontWeight: 700,
+            }}
           />
           <motion.button
+            className="btn-primary"
             whileTap={{ scale: 0.98 }}
             onClick={handleJoinRoom}
             disabled={!roomCode.trim()}
-            className="w-full bg-[#111] text-gray-400 rounded-2xl px-6 py-4 font-medium text-base disabled:text-gray-700 transition-colors"
+            style={{ background: roomCode.trim() ? 'var(--violet)' : undefined, color: roomCode.trim() ? '#fff' : undefined }}
           >
             Join room
           </motion.button>
         </div>
 
-        <button
-          onClick={() => navigate('/')}
-          className="w-full text-gray-600 text-sm mt-6 py-2 hover:text-gray-400 transition-colors"
-        >
+        <button className="btn-ghost" onClick={() => navigate('/')}>
           ← Back
         </button>
       </motion.div>

@@ -1,275 +1,305 @@
-import { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from 'react'
 
-const GRAVITY = 0.4  // Gentler gravity
-const FRICTION = 0.98
-const ANGULAR_FRICTION = 0.95
-const RESTITUTION = 0.2  // Less bouncy
-const CONTAINER_WIDTH = 400
-const CONTAINER_HEIGHT = 600
-const GROUND_Y = CONTAINER_HEIGHT - 50
-const BLOCK_WIDTH = 120
-const BLOCK_HEIGHT = 30
-const WALL_THICKNESS = 10
+const GRAVITY = 0.38
+const FRICTION = 0.97
+const ANGULAR_FRICTION = 0.94
+const RESTITUTION = 0.15
+const WALL_THICKNESS = 0
+const BLOCK_HEIGHT = 28
+const FALL_ROTATION_LIMIT = 75   // degrees before "fallen"
+const FALL_Y_MARGIN = 80         // px below ground = fallen
+
+// Responsive container — set at mount time
+let CONTAINER_WIDTH = Math.min(window.innerWidth, 420)
+let CONTAINER_HEIGHT = window.innerHeight
+let GROUND_Y = CONTAINER_HEIGHT - 60
+let BLOCK_WIDTH = Math.min(130, CONTAINER_WIDTH * 0.55)
 
 const PhysicsTower = forwardRef(({ onTowerFall, isActive }, ref) => {
   const [blocks, setBlocks] = useState([])
-  const [hasFallen, setHasFallen] = useState(false)
+  const [cameraOffsetY, setCameraOffsetY] = useState(0)
   const blocksRef = useRef([])
-  const animationFrameRef = useRef()
+  const hasFallenRef = useRef(false)
+  const animFrameRef = useRef()
+
+  // Recompute layout on mount in case window size changed
+  useEffect(() => {
+    CONTAINER_WIDTH = Math.min(window.innerWidth, 420)
+    CONTAINER_HEIGHT = window.innerHeight
+    GROUND_Y = CONTAINER_HEIGHT - 60
+    BLOCK_WIDTH = Math.min(130, CONTAINER_WIDTH * 0.55)
+  }, [])
 
   useImperativeHandle(ref, () => ({
     dropBlock: (offsetX, alignmentScore) => {
-      const hue = alignmentScore * 120
-      
+      hasFallenRef.current = false
+      const hue = alignmentScore * 120  // 0=red, 120=green
+      const startX = CONTAINER_WIDTH / 2 + offsetX * (CONTAINER_WIDTH * 0.28)
       const newBlock = {
         id: Date.now(),
-        x: CONTAINER_WIDTH / 2 + offsetX * 50,
-        y: 50,
+        x: Math.max(BLOCK_WIDTH / 2 + 8, Math.min(CONTAINER_WIDTH - BLOCK_WIDTH / 2 - 8, startX)),
+        y: 0,
         width: BLOCK_WIDTH,
         height: BLOCK_HEIGHT,
         rotation: 0,
         velocityX: 0,
-        velocityY: 0,
-        angularVelocity: 0,  // FIXED: Start with NO rotation
-        color: `hsl(${hue}, 70%, 50%)`,
+        velocityY: 2,
+        angularVelocity: 0,
+        color: `hsl(${hue}, 72%, 52%)`,
         mass: 1,
-        isFalling: true,  // FIXED: Track if block is in free fall
+        isFalling: true,
       }
-
       blocksRef.current = [...blocksRef.current, newBlock]
-      setBlocks(blocksRef.current)
+      setBlocks([...blocksRef.current])
+    },
+    resetBlocks: () => {
+      blocksRef.current = []
+      hasFallenRef.current = false
+      setBlocks([])
+      setCameraOffsetY(0)
     },
   }))
 
-  const checkAABBCollision = (block1, block2) => {
-    const hw1 = block1.width / 2
-    const hh1 = block1.height / 2
-    const hw2 = block2.width / 2
-    const hh2 = block2.height / 2
-
+  const checkCollision = (a, b) => {
+    const hw1 = a.width / 2, hh1 = a.height / 2
+    const hw2 = b.width / 2, hh2 = b.height / 2
     return (
-      Math.abs(block1.x - block2.x) < hw1 + hw2 &&
-      Math.abs(block1.y + hh1 - (block2.y + hh2)) < hh1 + hh2
+      Math.abs(a.x - b.x) < hw1 + hw2 &&
+      Math.abs((a.y + hh1) - (b.y + hh2)) < hh1 + hh2
     )
   }
 
-  const resolveCollision = (block1, block2) => {
-    const dx = block1.x - block2.x
-    const dy = (block1.y + block1.height / 2) - (block2.y + block2.height / 2)
-    const distance = Math.sqrt(dx * dx + dy * dy)
-    
-    if (distance === 0) return { block1, block2 }
+  const resolveCollision = useCallback((b1, b2) => {
+    const dx = b1.x - b2.x
+    const dy = (b1.y + b1.height / 2) - (b2.y + b2.height / 2)
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    if (dist === 0) return
 
-    const nx = dx / distance
-    const ny = dy / distance
-    
-    if (Math.abs(ny) > Math.abs(nx)) {
-      // Vertical collision (stacking)
-      if (block1.y < block2.y) {
-        // block1 is on top
-        block1.y = block2.y - block1.height
-        block1.isFalling = false  // FIXED: No longer falling
-        
-        const relativeVelocityY = block1.velocityY - block2.velocityY
-        if (relativeVelocityY > 0) {
-          const impulse = -(1 + RESTITUTION) * relativeVelocityY / 2
-          block1.velocityY += impulse
-          block2.velocityY -= impulse
-          
-          // FIXED: Only add rotation AFTER collision based on offset
-          const offsetX = block1.x - block2.x
-          block1.angularVelocity = offsetX * 0.005  // Much gentler rotation
-          block2.angularVelocity -= offsetX * 0.002
+    const nx = dx / dist, ny = dy / dist
+
+    if (Math.abs(ny) >= Math.abs(nx)) {
+      // Vertical — stacking
+      if (b1.y < b2.y) {
+        b1.y = b2.y - b1.height
+        b1.isFalling = false
+        const rv = b1.velocityY - b2.velocityY
+        if (rv > 0) {
+          const impulse = -(1 + RESTITUTION) * rv / 2
+          b1.velocityY += impulse
+          b2.velocityY -= impulse * 0.3
+          const lateralOffset = b1.x - b2.x
+          b1.angularVelocity = lateralOffset * 0.004
+          b2.angularVelocity -= lateralOffset * 0.002
         }
       } else {
-        block2.y = block1.y - block2.height
-        block2.isFalling = false
-        
-        const relativeVelocityY = block2.velocityY - block1.velocityY
-        if (relativeVelocityY > 0) {
-          const impulse = -(1 + RESTITUTION) * relativeVelocityY / 2
-          block2.velocityY += impulse
-          block1.velocityY -= impulse
-          
-          const offsetX = block2.x - block1.x
-          block2.angularVelocity = offsetX * 0.005
-          block1.angularVelocity -= offsetX * 0.002
+        b2.y = b1.y - b2.height
+        b2.isFalling = false
+        const rv = b2.velocityY - b1.velocityY
+        if (rv > 0) {
+          const impulse = -(1 + RESTITUTION) * rv / 2
+          b2.velocityY += impulse
+          b1.velocityY -= impulse * 0.3
+          const lateralOffset = b2.x - b1.x
+          b2.angularVelocity = lateralOffset * 0.004
+          b1.angularVelocity -= lateralOffset * 0.002
         }
       }
     } else {
-      // Horizontal collision
-      const overlap = (block1.width / 2 + block2.width / 2) - Math.abs(dx)
-      const separation = (overlap / 2) * Math.sign(dx)
-      block1.x += separation
-      block2.x -= separation
-      
-      const relativeVelocityX = block1.velocityX - block2.velocityX
-      const impulse = -(1 + RESTITUTION) * relativeVelocityX / 2
-      block1.velocityX += impulse
-      block2.velocityX -= impulse
+      // Horizontal — push apart
+      const overlap = (b1.width / 2 + b2.width / 2) - Math.abs(dx)
+      const sep = (overlap / 2) * Math.sign(dx)
+      b1.x += sep
+      b2.x -= sep
+      const rv = b1.velocityX - b2.velocityX
+      const impulse = -(1 + RESTITUTION) * rv / 2
+      b1.velocityX += impulse
+      b2.velocityX -= impulse
     }
-
-    return { block1, block2 }
-  }
+  }, [])
 
   useEffect(() => {
     if (!isActive) return
 
     const simulate = () => {
-      let updatedBlocks = blocksRef.current.map((block) => {
-        let newVelocityY = block.velocityY + GRAVITY
-        let newVelocityX = block.velocityX * FRICTION
-        
-        // FIXED: Only apply angular friction if NOT falling
-        // Blocks falling straight down should have NO rotation
-        let newAngularVelocity = block.isFalling ? 0 : block.angularVelocity * ANGULAR_FRICTION
-
-        return {
-          ...block,
-          x: block.x + newVelocityX,
-          y: block.y + newVelocityY,
-          rotation: block.rotation + newAngularVelocity,
-          velocityX: newVelocityX,
-          velocityY: newVelocityY,
-          angularVelocity: newAngularVelocity,
-        }
-      })
+      let bs = blocksRef.current.map(b => ({
+        ...b,
+        velocityY: b.velocityY + GRAVITY,
+        velocityX: b.velocityX * FRICTION,
+        angularVelocity: b.isFalling ? 0 : b.angularVelocity * ANGULAR_FRICTION,
+        x: b.x + b.velocityX,
+        y: b.y + b.velocityY,
+        rotation: b.rotation + (b.isFalling ? 0 : b.angularVelocity * ANGULAR_FRICTION),
+      }))
 
       // Ground collision
-      updatedBlocks = updatedBlocks.map((block) => {
-        if (block.y + block.height >= GROUND_Y) {
-          const newBlock = { ...block }
-          newBlock.y = GROUND_Y - block.height
-          newBlock.isFalling = false  // FIXED: On ground, not falling
-          
-          if (Math.abs(newBlock.velocityY) > 0.5) {
-            newBlock.velocityY = -newBlock.velocityY * RESTITUTION
-          } else {
-            newBlock.velocityY = 0
-          }
-          
-          newBlock.velocityX *= 0.95
-          newBlock.angularVelocity *= 0.9
-          
-          return newBlock
+      bs = bs.map(b => {
+        if (b.y + b.height < GROUND_Y) return b
+        const nb = { ...b, y: GROUND_Y - b.height, isFalling: false }
+        if (Math.abs(nb.velocityY) > 0.5) {
+          nb.velocityY = -nb.velocityY * RESTITUTION
+        } else {
+          nb.velocityY = 0
         }
-        return block
+        nb.velocityX *= 0.92
+        nb.angularVelocity *= 0.88
+        return nb
       })
 
       // Wall collision
-      updatedBlocks = updatedBlocks.map((block) => {
-        const newBlock = { ...block }
-        const leftBound = WALL_THICKNESS + block.width / 2
-        const rightBound = CONTAINER_WIDTH - WALL_THICKNESS - block.width / 2
-        
-        if (newBlock.x < leftBound) {
-          newBlock.x = leftBound
-          newBlock.velocityX = -newBlock.velocityX * RESTITUTION
-        }
-        if (newBlock.x > rightBound) {
-          newBlock.x = rightBound
-          newBlock.velocityX = -newBlock.velocityX * RESTITUTION
-        }
-        
-        return newBlock
+      bs = bs.map(b => {
+        const nb = { ...b }
+        const left = WALL_THICKNESS + nb.width / 2
+        const right = CONTAINER_WIDTH - WALL_THICKNESS - nb.width / 2
+        if (nb.x < left)  { nb.x = left;  nb.velocityX = Math.abs(nb.velocityX) * RESTITUTION }
+        if (nb.x > right) { nb.x = right; nb.velocityX = -Math.abs(nb.velocityX) * RESTITUTION }
+        return nb
       })
 
-      // Block-to-block collisions
-      for (let i = 0; i < updatedBlocks.length; i++) {
-        for (let j = i + 1; j < updatedBlocks.length; j++) {
-          if (checkAABBCollision(updatedBlocks[i], updatedBlocks[j])) {
-            const result = resolveCollision(updatedBlocks[i], updatedBlocks[j])
-            updatedBlocks[i] = result.block1
-            updatedBlocks[j] = result.block2
+      // Block-block collisions
+      for (let i = 0; i < bs.length; i++) {
+        for (let j = i + 1; j < bs.length; j++) {
+          if (checkCollision(bs[i], bs[j])) {
+            resolveCollision(bs[i], bs[j])
           }
         }
       }
 
-      blocksRef.current = updatedBlocks
-      setBlocks([...updatedBlocks])
+      blocksRef.current = bs
+      setBlocks([...bs])
 
-      // Check for tower fall - more lenient
-      const fallen = updatedBlocks.some(
-        (block) => block.y > GROUND_Y + 100 || Math.abs(block.rotation) > 80
-      )
-      
-      if (fallen && !hasFallen) {
-        setHasFallen(true)
-        onTowerFall()
+      // Camera: pan up to keep the top of the stack visible
+      if (bs.length > 0) {
+        const topY = Math.min(...bs.map(b => b.y))
+        const visibleAreaPad = CONTAINER_HEIGHT * 0.25
+        const desiredCamera = Math.max(0, topY - visibleAreaPad)
+        setCameraOffsetY(prev => {
+          const target = desiredCamera
+          return prev + (target - prev) * 0.06  // smooth lerp
+        })
       }
 
-      animationFrameRef.current = requestAnimationFrame(simulate)
-    }
-
-    animationFrameRef.current = requestAnimationFrame(simulate)
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
+      // Fall detection
+      if (!hasFallenRef.current) {
+        const fallen = bs.some(
+          b => b.y > GROUND_Y + FALL_Y_MARGIN || Math.abs(b.rotation) > FALL_ROTATION_LIMIT
+        )
+        if (fallen) {
+          hasFallenRef.current = true
+          onTowerFall()
+        }
       }
+
+      animFrameRef.current = requestAnimationFrame(simulate)
     }
-  }, [isActive, hasFallen, onTowerFall])
+
+    animFrameRef.current = requestAnimationFrame(simulate)
+    return () => cancelAnimationFrame(animFrameRef.current)
+  }, [isActive, onTowerFall, resolveCollision])
 
   return (
-    <div className="absolute inset-0 w-full h-full overflow-hidden flex items-center justify-center">
-      <div 
-        className="relative bg-gray-950 rounded-3xl border-2 border-gray-800"
-        style={{ width: CONTAINER_WIDTH, height: CONTAINER_HEIGHT }}
-      >
-        <div className="absolute left-0 top-0 bottom-0 bg-gray-800/30" style={{ width: WALL_THICKNESS }} />
-        <div className="absolute right-0 top-0 bottom-0 bg-gray-800/30" style={{ width: WALL_THICKNESS }} />
-        <div
-          className="absolute w-full h-2 bg-gradient-to-t from-gray-700 to-gray-800"
-          style={{ bottom: CONTAINER_HEIGHT - GROUND_Y }}
-        />
+    <div style={{
+      position: 'absolute',
+      inset: 0,
+      overflow: 'hidden',
+      background: 'var(--bg)',
+    }}>
+      {/* Ground line */}
+      <div style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        top: GROUND_Y - cameraOffsetY,
+        height: 2,
+        background: 'linear-gradient(90deg, transparent, var(--border), transparent)',
+        transition: 'none',
+      }} />
 
-        {blocks.map((block) => (
-          <div
-            key={block.id}
-            className="absolute"
-            style={{
-              left: block.x - block.width / 2,
-              top: block.y,
-              width: block.width,
-              height: block.height,
-              transform: `rotate(${block.rotation}deg)`,
-              transformOrigin: 'center center',
-            }}
-          >
-            <div
-              className="absolute inset-0 rounded blur-sm opacity-30"
-              style={{
-                backgroundColor: block.color,
-                transform: 'translateY(2px)',
-              }}
-            />
-            
-            <div
-              className="absolute inset-0 rounded"
-              style={{
-                background: `linear-gradient(135deg, ${block.color} 0%, ${block.color}dd 100%)`,
-                border: '1px solid rgba(255,255,255,0.1)',
-              }}
-            >
-              <div
-                className="absolute top-0 left-0 right-0 h-1/2 rounded-t"
-                style={{
-                  background: 'linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)',
-                }}
-              />
-            </div>
-          </div>
-        ))}
-
-        <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2 border border-gray-800">
-          <p className="text-gray-400 text-xs">Blocks</p>
-          <p className="text-white text-xl font-bold">{blocks.length}</p>
+      {/* Ground label */}
+      {blocks.length === 0 && (
+        <div style={{
+          position: 'absolute',
+          bottom: CONTAINER_HEIGHT - GROUND_Y + 12,
+          left: 0,
+          right: 0,
+          textAlign: 'center',
+        }}>
+          <span style={{ color: 'var(--text-3)', fontSize: 12 }}>
+            Tower will be built here
+          </span>
         </div>
-      </div>
+      )}
+
+      {/* Blocks */}
+      {blocks.map(block => (
+        <div
+          key={block.id}
+          style={{
+            position: 'absolute',
+            left: block.x - block.width / 2,
+            top: block.y - cameraOffsetY,
+            width: block.width,
+            height: block.height,
+            transform: `rotate(${block.rotation}deg)`,
+            transformOrigin: 'center center',
+            willChange: 'transform, top',
+          }}
+        >
+          {/* Glow shadow */}
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: 6,
+            background: block.color,
+            filter: 'blur(6px)',
+            opacity: 0.3,
+            transform: 'translateY(3px)',
+          }} />
+          {/* Block body */}
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: 6,
+            background: `linear-gradient(160deg, ${block.color}ee 0%, ${block.color}99 100%)`,
+            border: '1px solid rgba(255,255,255,0.12)',
+            overflow: 'hidden',
+          }}>
+            {/* Highlight stripe */}
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '45%',
+              borderRadius: '6px 6px 0 0',
+              background: 'linear-gradient(to bottom, rgba(255,255,255,0.18), transparent)',
+            }} />
+          </div>
+        </div>
+      ))}
+
+      {/* Block counter */}
+      {blocks.length > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: 16,
+          left: 16,
+          background: 'rgba(0,0,0,0.5)',
+          backdropFilter: 'blur(8px)',
+          borderRadius: 12,
+          padding: '8px 14px',
+          border: '1px solid var(--border)',
+        }}>
+          <p style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Stacked
+          </p>
+          <p style={{ color: 'var(--text-1)', fontSize: 22, fontWeight: 800, lineHeight: 1 }}>
+            {blocks.length}
+          </p>
+        </div>
+      )}
     </div>
   )
 })
 
 PhysicsTower.displayName = 'PhysicsTower'
-
 export default PhysicsTower

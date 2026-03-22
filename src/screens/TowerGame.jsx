@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'motion/react'
 import {
@@ -8,91 +8,139 @@ import {
   useIsHost,
 } from 'playroomkit'
 import PhysicsTower from '../components/PhysicsTower'
-import QuadChart from '../components/QuadChart'
+import SliderInput from '../components/SliderInput'
 import { allQuestions } from '../data/questions'
 
-const QUESTION_COUNT = 5
+const QUESTION_COUNT = 15
+const MAX_OFFSET_RATIO = 0.38  // max fraction of width offset from center
+
+// Pick a random set balanced across categories
+function pickQuestions(n) {
+  const categories = {}
+  allQuestions.forEach(q => {
+    if (!categories[q.category]) categories[q.category] = []
+    categories[q.category].push(q)
+  })
+  const categoryKeys = Object.keys(categories)
+  const perCat = Math.ceil(n / categoryKeys.length)
+
+  let picked = []
+  categoryKeys.forEach(cat => {
+    const shuffled = [...categories[cat]].sort(() => Math.random() - 0.5)
+    picked.push(...shuffled.slice(0, perCat))
+  })
+  return picked.sort(() => Math.random() - 0.5).slice(0, n).map(q => q.id)
+}
+
+const CATEGORY_COLORS = {
+  Work:     'var(--cyan)',
+  Love:     '#f472b6',
+  Family:   'var(--amber)',
+  Friends:  'var(--green)',
+  Partners: 'var(--violet)',
+  Random:   'var(--text-2)',
+}
 
 export default function TowerGame() {
   const navigate = useNavigate()
   const towerRef = useRef(null)
   const isHost = useIsHost()
-  const players = usePlayersList(true) // re-render whenever any player state changes
+  const players = usePlayersList(true)
 
-  // ── Global shared state (managed by host) ──
-  const [phase, setPhase] = useMultiplayerState('phase', 'question')
+  // ── Shared state ──
+  const [phase, setPhase] = useMultiplayerState('phase', 'splash')
   const [questionIndex, setQuestionIndex] = useMultiplayerState('questionIndex', 0)
   const [questionIds, setQuestionIds] = useMultiplayerState('questionIds', null)
-  const [towerResult, setTowerResult] = useMultiplayerState('towerResult', null) // 'standing' | 'fallen'
+  const [towerResult, setTowerResult] = useMultiplayerState('towerResult', null)
+  const [totalStacked, setTotalStacked] = useMultiplayerState('totalStacked', 0)
+  const [bestRun, setBestRun] = useMultiplayerState('bestRun', 0)
+  const [currentRunBlocks, setCurrentRunBlocks] = useMultiplayerState('currentRunBlocks', 0)
+  const [totalCollapsed, setTotalCollapsed] = useMultiplayerState('totalCollapsed', 0)
+  const [alignmentSum, setAlignmentSum] = useMultiplayerState('alignmentSum', 0)
 
-  // ── Local UI state ──
+  // ── Local state ──
   const [localAnswer, setLocalAnswer] = useState(null)
   const [submitted, setSubmitted] = useState(false)
   const [dropParams, setDropParams] = useState(null)
-  const [showContinueBtn, setShowContinueBtn] = useState(false)
+  const [showPhysicsBtn, setShowPhysicsBtn] = useState(false)
+  const [splashText, setSplashText] = useState(null)  // { text, sub }
 
   const me = myPlayer()
   const partner = players.find(p => p.id !== me?.id)
 
-  // Host picks the question set once on mount
+  // Guard
+  useEffect(() => {
+    try { myPlayer() } catch { navigate('/create-join') }
+  }, [navigate])
+
+  // Host picks questions once
   useEffect(() => {
     if (!isHost || questionIds) return
-    const shuffled = [...allQuestions]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, QUESTION_COUNT)
-      .map(q => q.id)
-    setQuestionIds(shuffled, true)
+    setQuestionIds(pickQuestions(QUESTION_COUNT), true)
   }, [isHost, questionIds, setQuestionIds])
 
-  // Reset local state when question changes
+  // Splash → question sequence (host drives)
+  useEffect(() => {
+    if (phase !== 'splash' || !isHost) return
+    // Show "Let's Get Building" for 2s, then first question after 3 more seconds
+    const t1 = setTimeout(() => setPhase('question', true), 3000)
+    return () => clearTimeout(t1)
+  }, [phase, isHost, setPhase])
+
+  // Reset local state on question change
   useEffect(() => {
     setLocalAnswer(null)
     setSubmitted(false)
     setDropParams(null)
-    setShowContinueBtn(false)
+    setShowPhysicsBtn(false)
   }, [questionIndex])
 
-  // After PhysicsTower mounts (phase just became 'dropping'), call dropBlock
-  // Uses rAF so the ref is guaranteed to be attached before we call it
+  // Host: both answered → move to review
+  useEffect(() => {
+    if (!isHost || phase !== 'answer') return
+    const myA = me?.getState(`answer_${questionIndex}`)
+    const pA = partner?.getState(`answer_${questionIndex}`)
+    if (myA && pA) setPhase('review', true)
+  }, [players, isHost, phase, questionIndex, me, partner, setPhase])
+
+  // Drop block after phase becomes 'dropping'
   useEffect(() => {
     if (phase !== 'dropping' || !dropParams) return
     const frame = requestAnimationFrame(() => {
       towerRef.current?.dropBlock(dropParams.offsetX, dropParams.alignmentScore)
     })
-    const timer = setTimeout(() => setShowContinueBtn(true), 3000)
-    return () => {
-      cancelAnimationFrame(frame)
-      clearTimeout(timer)
-    }
+    const t = setTimeout(() => setShowPhysicsBtn(true), 3500)
+    return () => { cancelAnimationFrame(frame); clearTimeout(t) }
   }, [phase, dropParams])
 
-  // Guard: if Playroom isn't initialized go back
+  // Tower result sync
   useEffect(() => {
-    try { myPlayer() } catch { navigate('/create-join') }
-  }, [navigate])
+    if (towerResult !== 'fallen' || phase !== 'dropping') return
+    setPhase('failed', true)
+  }, [towerResult, phase, setPhase])
 
-  // Derive current question from shared questionIds
   const currentQuestion = questionIds
     ? allQuestions.find(q => q.id === questionIds[questionIndex])
     : null
 
-  // Get both players' answers for the current question
   const myAnswer = me?.getState(`answer_${questionIndex}`)
   const partnerAnswer = partner?.getState(`answer_${questionIndex}`)
-  const bothAnswered = myAnswer && partnerAnswer
 
-  // Host: when both answered → move to review
-  useEffect(() => {
-    if (!isHost || phase !== 'answer' || !bothAnswered) return
-    setPhase('review', true)
-  }, [isHost, phase, bothAnswered, setPhase])
+  const getDeviation = () => {
+    if (!myAnswer || !partnerAnswer) return 0
+    return Math.abs(myAnswer - partnerAnswer) / 4  // 0.0–1.0
+  }
 
-  // Tower fall syncs phase to 'failed' for both players
-  useEffect(() => {
-    if (towerResult === 'fallen' && phase === 'dropping') {
-      setPhase('failed', true)
-    }
-  }, [towerResult, phase, setPhase])
+  const getAlignmentScore = () => Math.round((1 - getDeviation()) * 100)
+
+  const getAlignmentMessage = () => {
+    const s = getAlignmentScore()
+    if (s >= 90) return 'Perfect match 🎯'
+    if (s >= 70) return 'Really close 💚'
+    if (s >= 50) return 'Similar vibes ✨'
+    if (s >= 30) return 'Some differences 🌊'
+    return 'Opposite ends 🔥'
+  }
 
   // ── Handlers ──
 
@@ -100,26 +148,38 @@ export default function TowerGame() {
     if (!localAnswer) return
     me.setState(`answer_${questionIndex}`, localAnswer)
     setSubmitted(true)
-    setPhase('answer', true) // ensure phase is 'answer' while waiting
   }
 
-  const handleContinueToDrop = () => {
+  const handleDropBlock = () => {
     if (!myAnswer || !partnerAnswer) return
-    const offsetX = (myAnswer.x - partnerAnswer.x) / 2
-    const alignmentScore = Math.max(0, 1 - getDistance() / 2)
-    // Store params — dropBlock is called via useEffect AFTER PhysicsTower mounts
+    const deviation = getDeviation()
+    const alignmentScore = 1 - deviation
+    // Alternate left/right each turn
+    const direction = questionIndex % 2 === 0 ? 1 : -1
+    const offsetX = direction * deviation * MAX_OFFSET_RATIO
+
+    if (isHost) {
+      setAlignmentSum(alignmentSum + getAlignmentScore(), true)
+    }
+
     setDropParams({ offsetX, alignmentScore })
     setTowerResult(null, true)
-    setShowContinueBtn(false)
+    setShowPhysicsBtn(false)
     setPhase('dropping', true)
   }
 
-  const handleTowerFall = () => {
-    // Any player detecting a fall syncs it globally
+  const handleTowerFall = useCallback(() => {
     setTowerResult('fallen', true)
-  }
+  }, [setTowerResult])
 
-  const handleConfirmDrop = () => {
+  const handleAfterDrop = () => {
+    // Update best run tracking
+    if (isHost) {
+      const newCurrent = currentRunBlocks + 1
+      setCurrentRunBlocks(newCurrent, true)
+      setTotalStacked(totalStacked + 1, true)
+      if (newCurrent > bestRun) setBestRun(newCurrent, true)
+    }
     setPhase('checking', true)
   }
 
@@ -133,351 +193,606 @@ export default function TowerGame() {
     }
   }
 
-  const getDistance = () => {
-    if (!myAnswer || !partnerAnswer) return 0
-    return Math.sqrt(
-      Math.pow(myAnswer.x - partnerAnswer.x, 2) +
-      Math.pow(myAnswer.y - partnerAnswer.y, 2)
-    )
+  const handleResetAfterFall = () => {
+    // Reset tower, update stats, continue to next question
+    towerRef.current?.resetBlocks()
+    if (isHost) {
+      setTotalCollapsed(totalCollapsed + 1, true)
+      setCurrentRunBlocks(0, true)
+    }
+    const next = questionIndex + 1
+    if (next >= QUESTION_COUNT) {
+      setPhase('complete', true)
+    } else {
+      setQuestionIndex(next, true)
+      setPhase('question', true)
+    }
   }
 
-  const getAlignmentScore = () => Math.max(0, Math.round((1 - getDistance() / 2) * 100))
+  const avgAlignment = questionIndex > 0
+    ? Math.round(alignmentSum / (questionIndex + 1))
+    : getAlignmentScore()
 
-  const getAlignmentMessage = () => {
-    const d = getDistance()
-    if (d < 0.5) return 'Perfect alignment'
-    if (d < 1.0) return 'Great minds think alike'
-    if (d < 1.5) return 'Close enough'
-    return 'Interesting differences'
-  }
-
-  // Loading until question set is shared
-  if (!currentQuestion) {
+  // Loading screen
+  if (!currentQuestion && phase !== 'splash' && phase !== 'complete') {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <motion.p
-          animate={{ opacity: [0.4, 1, 0.4] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-          className="text-gray-500 text-sm"
-        >
+      <div style={{
+        position: 'fixed', inset: 0,
+        background: 'var(--bg)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <p className="pulse" style={{ color: 'var(--text-2)', fontSize: 14 }}>
           Loading game...
-        </motion.p>
+        </p>
       </div>
     )
   }
 
+  const isOverlayVisible = phase !== 'dropping'
+  const overlaySheetVisible = !['splash', 'dropping'].includes(phase)
+
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden">
-      {/* Tower ONLY visible during dropping */}
-      {phase === 'dropping' && (
+    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg)', overflow: 'hidden' }}>
+
+      {/* ── Tower (always in background) ── */}
+      <div className="tower-bg">
         <PhysicsTower
           ref={towerRef}
           onTowerFall={handleTowerFall}
-          isActive={true}
+          isActive={phase === 'dropping'}
         />
-      )}
+      </div>
 
-      <AnimatePresence mode="wait">
-
-        {/* ── Question ── */}
-        {phase === 'question' && (
+      {/* ── Splash screen ── */}
+      <AnimatePresence>
+        {phase === 'splash' && (
           <motion.div
-            key="question"
+            key="splash"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 flex flex-col items-center justify-center px-6"
+            exit={{ opacity: 0, transition: { duration: 0.8 } }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 20,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(13,13,15,0.92)',
+              backdropFilter: 'blur(12px)',
+            }}
           >
-            <div className="w-full max-w-sm text-center">
-              <p className="text-gray-500 text-sm mb-3">
-                Question {questionIndex + 1} of {QUESTION_COUNT}
-              </p>
-              <div className="flex gap-1.5 justify-center mb-10">
-                {Array.from({ length: QUESTION_COUNT }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`h-0.5 flex-1 rounded-full transition-all ${
-                      i <= questionIndex ? 'bg-white' : 'bg-gray-800'
-                    }`}
-                  />
-                ))}
-              </div>
-
-              <div className="flex justify-center mb-8">
-                <div
-                  className="w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl font-bold"
-                  style={{ background: 'linear-gradient(135deg, #7c3aed, #6366f1)' }}
-                >
-                  {questionIndex + 1}
-                </div>
-              </div>
-
-              <h2 className="font-serif text-3xl text-white leading-snug mb-12 px-2">
-                {currentQuestion.prompt}
-              </h2>
-
-              <motion.button
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setPhase('answer', true)}
-                className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base"
-              >
-                Place your answer
-              </motion.button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ── Answer ── */}
-        {phase === 'answer' && (
-          <motion.div
-            key="answer"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 flex flex-col items-center justify-between px-6 py-10"
-          >
-            <div className="w-full max-w-sm text-center">
-              <p className="text-gray-500 text-sm mb-2">Question {questionIndex + 1}</p>
-              <h3 className="font-serif text-xl text-white leading-snug">{currentQuestion.prompt}</h3>
-            </div>
-
-            <QuadChart
-              axes={currentQuestion.axes}
-              onAnswer={(x, y) => setLocalAnswer({ x, y })}
-              playerAnswer={localAnswer}
-              interactive={!submitted}
-            />
-
-            <div className="w-full max-w-sm space-y-3">
-              {submitted ? (
-                <motion.p
-                  animate={{ opacity: [0.4, 1, 0.4] }}
-                  transition={{ duration: 1.5, repeat: Infinity }}
-                  className="text-center text-gray-500 text-sm py-4"
-                >
-                  Waiting for {partner?.getState('name') || 'partner'}...
-                </motion.p>
-              ) : (
-                <>
-                  {localAnswer && (
-                    <p className="text-center text-gray-600 text-xs">Tap again to adjust</p>
-                  )}
-                  <motion.button
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleSubmitAnswer}
-                    disabled={!localAnswer}
-                    className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base disabled:bg-[#111] disabled:text-gray-600 transition-colors"
-                  >
-                    Submit answer
-                  </motion.button>
-                </>
-              )}
-            </div>
-          </motion.div>
-        )}
-
-        {/* ── Review ── */}
-        {phase === 'review' && myAnswer && partnerAnswer && (
-          <motion.div
-            key="review"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 flex flex-col items-center justify-between px-6 py-10"
-          >
-            <div className="w-full max-w-sm text-center">
-              <p className="text-gray-500 text-sm mb-2">Question {questionIndex + 1}</p>
-              <h3 className="font-serif text-xl text-white leading-snug mb-8">{currentQuestion.prompt}</h3>
-
-              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
-                <p className="text-white text-6xl font-bold mb-1">{getAlignmentScore()}%</p>
-                <p className="text-gray-500 text-sm">{getAlignmentMessage()}</p>
-              </motion.div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-center gap-6 text-xs mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full" />
-                  <span className="text-gray-400">You</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-purple-500 rounded-full" />
-                  <span className="text-gray-400">Partner</span>
-                </div>
-              </div>
-              <QuadChart
-                axes={currentQuestion.axes}
-                playerAnswer={myAnswer}
-                partnerAnswer={partnerAnswer}
-                showAnswers={true}
-              />
-            </div>
-
-            <motion.button
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleContinueToDrop}
-              className="w-full max-w-sm bg-white text-black rounded-2xl px-6 py-4 font-medium text-base"
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.3, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+              style={{ textAlign: 'center' }}
             >
-              Drop block
-            </motion.button>
+              <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 12, letterSpacing: '0.04em' }}>
+                Get ready
+              </p>
+              <h1 className="font-serif" style={{ fontSize: 44, color: 'var(--text-1)', lineHeight: 1.15 }}>
+                Let's get<br />
+                <span style={{ fontStyle: 'italic', color: 'var(--violet)' }}>building</span>
+              </h1>
+              <motion.div
+                initial={{ scaleX: 0 }}
+                animate={{ scaleX: 1 }}
+                transition={{ delay: 0.8, duration: 2.0, ease: 'linear' }}
+                style={{
+                  height: 2,
+                  background: 'linear-gradient(90deg, var(--violet), var(--cyan))',
+                  borderRadius: 9999,
+                  marginTop: 28,
+                  transformOrigin: 'left',
+                }}
+              />
+            </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
 
-        {/* ── Dropping ── tower is visible behind, controls at bottom ── */}
+      {/* ── Dim overlay behind sheet (blurs tower) ── */}
+      <AnimatePresence>
+        {overlaySheetVisible && (
+          <motion.div
+            key="dim"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 9,
+              background: 'rgba(0,0,0,0.55)',
+              backdropFilter: 'blur(6px)',
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── Bottom sheet overlay (questions, results) ── */}
+      <AnimatePresence>
+        {overlaySheetVisible && (
+          <motion.div
+            key="sheet"
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', stiffness: 300, damping: 32 }}
+            style={{
+              position: 'fixed',
+              left: 0, right: 0, bottom: 0,
+              zIndex: 10,
+              background: 'var(--surface)',
+              borderTop: '1px solid var(--border)',
+              borderRadius: '24px 24px 0 0',
+              paddingBottom: `max(28px, env(safe-area-inset-bottom, 28px))`,
+              maxHeight: '92dvh',
+              overflowY: 'auto',
+            }}
+          >
+            {/* Handle bar */}
+            <div style={{ paddingTop: 12, paddingBottom: 4, display: 'flex', justifyContent: 'center' }}>
+              <div style={{ width: 40, height: 4, borderRadius: 9999, background: 'var(--border)' }} />
+            </div>
+
+            <div style={{ padding: '0 20px' }}>
+              <AnimatePresence mode="wait">
+
+                {/* ── Question card ── */}
+                {phase === 'question' && currentQuestion && (
+                  <motion.div
+                    key={`q-${questionIndex}`}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    {/* Progress */}
+                    <div className="progress-bar" style={{ marginBottom: 16, marginTop: 8 }}>
+                      {Array.from({ length: QUESTION_COUNT }).map((_, i) => (
+                        <div
+                          key={i}
+                          className={`progress-segment${i < questionIndex ? ' done' : i === questionIndex ? ' current' : ''}`}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Category badge */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                      <span className="category-badge" style={{
+                        borderColor: CATEGORY_COLORS[currentQuestion.category],
+                        color: CATEGORY_COLORS[currentQuestion.category],
+                      }}>
+                        {currentQuestion.category}
+                      </span>
+                      <span style={{ color: 'var(--text-3)', fontSize: 12 }}>
+                        {questionIndex + 1} / {QUESTION_COUNT}
+                      </span>
+                    </div>
+
+                    {/* Question */}
+                    <h2 style={{
+                      fontSize: 22,
+                      fontWeight: 700,
+                      color: 'var(--text-1)',
+                      lineHeight: 1.35,
+                      marginBottom: 28,
+                    }}>
+                      {currentQuestion.prompt}
+                    </h2>
+
+                    <motion.button
+                      className="btn-primary"
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => setPhase('answer', true)}
+                      style={{ background: 'var(--violet)', color: '#fff', marginBottom: 8 }}
+                    >
+                      Place my answer →
+                    </motion.button>
+                  </motion.div>
+                )}
+
+                {/* ── Answer ── */}
+                {phase === 'answer' && currentQuestion && (
+                  <motion.div
+                    key={`a-${questionIndex}`}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <div style={{ marginTop: 8, marginBottom: 18 }}>
+                      <span className="category-badge" style={{
+                        borderColor: CATEGORY_COLORS[currentQuestion.category],
+                        color: CATEGORY_COLORS[currentQuestion.category],
+                        marginBottom: 10,
+                        display: 'inline-flex',
+                      }}>
+                        {currentQuestion.category}
+                      </span>
+                      <h3 style={{
+                        fontSize: 18,
+                        fontWeight: 700,
+                        color: 'var(--text-1)',
+                        lineHeight: 1.4,
+                        marginTop: 8,
+                      }}>
+                        {currentQuestion.prompt}
+                      </h3>
+                    </div>
+
+                    <div style={{ marginBottom: 28 }}>
+                      <SliderInput
+                        leftLabel={currentQuestion.leftLabel}
+                        rightLabel={currentQuestion.rightLabel}
+                        value={localAnswer}
+                        onChange={setLocalAnswer}
+                        disabled={submitted}
+                      />
+                    </div>
+
+                    {submitted ? (
+                      <motion.div style={{ textAlign: 'center', paddingBottom: 4 }}>
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          color: 'var(--green)',
+                          fontSize: 14,
+                          marginBottom: 8,
+                        }}>
+                          <span>✓ Submitted</span>
+                        </div>
+                        <p className="pulse" style={{ color: 'var(--text-2)', fontSize: 13 }}>
+                          Waiting for {partner?.getState('name') || 'partner'}...
+                        </p>
+                      </motion.div>
+                    ) : (
+                      <motion.button
+                        className="btn-primary"
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleSubmitAnswer}
+                        disabled={!localAnswer}
+                        style={localAnswer ? { background: 'var(--violet)', color: '#fff' } : {}}
+                      >
+                        {localAnswer ? 'Submit answer' : 'Pick an option above'}
+                      </motion.button>
+                    )}
+                  </motion.div>
+                )}
+
+                {/* ── Review ── */}
+                {phase === 'review' && currentQuestion && myAnswer && partnerAnswer && (
+                  <motion.div
+                    key={`r-${questionIndex}`}
+                    initial={{ opacity: 0, scale: 0.97 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.35 }}
+                  >
+                    <div style={{ marginTop: 8, marginBottom: 20 }}>
+                      <h3 style={{ fontSize: 15, color: 'var(--text-2)', marginBottom: 4 }}>
+                        {currentQuestion.prompt}
+                      </h3>
+                    </div>
+
+                    {/* Alignment score */}
+                    <motion.div
+                      initial={{ scale: 0.8, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ type: 'spring', stiffness: 280, damping: 20 }}
+                      style={{ textAlign: 'center', marginBottom: 24 }}
+                    >
+                      <p style={{
+                        fontSize: 64,
+                        fontWeight: 800,
+                        color: 'var(--text-1)',
+                        lineHeight: 1,
+                        marginBottom: 6,
+                      }}>
+                        {getAlignmentScore()}%
+                      </p>
+                      <p style={{ color: 'var(--text-2)', fontSize: 15 }}>
+                        {getAlignmentMessage()}
+                      </p>
+                    </motion.div>
+
+                    {/* Answer comparison */}
+                    <div className="card" style={{ marginBottom: 20 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
+                        <div style={{ textAlign: 'left' }}>
+                          <p style={{ color: 'var(--text-3)', fontSize: 11, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                            You
+                          </p>
+                          <p style={{ color: 'var(--violet)', fontWeight: 700, fontSize: 22 }}>
+                            {myAnswer}
+                          </p>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <p style={{ color: 'var(--text-3)', fontSize: 11, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                            {partner?.getState('name') || 'Partner'}
+                          </p>
+                          <p style={{ color: 'var(--cyan)', fontWeight: 700, fontSize: 22 }}>
+                            {partnerAnswer}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Visual bar */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-3)', marginBottom: 6 }}>
+                        <span>{currentQuestion.leftLabel}</span>
+                        <span>{currentQuestion.rightLabel}</span>
+                      </div>
+                      <div style={{ height: 6, background: 'var(--border)', borderRadius: 9999, position: 'relative' }}>
+                        {/* My dot */}
+                        <div style={{
+                          position: 'absolute',
+                          left: `${((myAnswer - 1) / 4) * 100}%`,
+                          top: '50%',
+                          width: 14, height: 14,
+                          borderRadius: '50%',
+                          background: 'var(--violet)',
+                          transform: 'translate(-50%, -50%)',
+                          border: '2px solid var(--surface)',
+                        }} />
+                        {/* Partner dot */}
+                        <div style={{
+                          position: 'absolute',
+                          left: `${((partnerAnswer - 1) / 4) * 100}%`,
+                          top: '50%',
+                          width: 14, height: 14,
+                          borderRadius: '50%',
+                          background: 'var(--cyan)',
+                          transform: 'translate(-50%, -50%)',
+                          border: '2px solid var(--surface)',
+                        }} />
+                      </div>
+                    </div>
+
+                    <motion.button
+                      className="btn-primary"
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleDropBlock}
+                      style={{ background: 'var(--violet)', color: '#fff' }}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.4 }}
+                    >
+                      Drop the block 🧱
+                    </motion.button>
+                  </motion.div>
+                )}
+
+                {/* ── Checking ── */}
+                {phase === 'checking' && (
+                  <motion.div
+                    key="checking"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.35 }}
+                    style={{ paddingTop: 8, paddingBottom: 4 }}
+                  >
+                    <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+                        style={{ fontSize: 52, marginBottom: 12 }}
+                      >
+                        🏗️
+                      </motion.div>
+                      <h3 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-1)', marginBottom: 6 }}>
+                        Tower stands!
+                      </h3>
+                      <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
+                        {questionIndex + 1} block{questionIndex !== 0 ? 's' : ''} stacked — keep going
+                      </p>
+                    </div>
+
+                    <motion.button
+                      className="btn-primary"
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleNextQuestion}
+                      style={{ background: 'var(--green)', color: '#000', marginBottom: 4 }}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.35 }}
+                    >
+                      {questionIndex + 1 >= QUESTION_COUNT ? 'See final tower →' : 'Next question →'}
+                    </motion.button>
+                  </motion.div>
+                )}
+
+                {/* ── Failed ── */}
+                {phase === 'failed' && (
+                  <motion.div
+                    key="failed"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.35 }}
+                    style={{ paddingTop: 8, paddingBottom: 4 }}
+                  >
+                    <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                      <motion.div
+                        initial={{ rotate: 0 }}
+                        animate={{ rotate: [0, -15, 15, -10, 10, 0] }}
+                        transition={{ delay: 0.2, duration: 0.6 }}
+                        style={{ fontSize: 52, marginBottom: 12 }}
+                      >
+                        💥
+                      </motion.div>
+                      <h3 style={{ fontSize: 26, fontWeight: 800, color: 'var(--danger)', marginBottom: 6 }}>
+                        Tower collapsed!
+                      </h3>
+                      <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 4 }}>
+                        Best run: {bestRun} block{bestRun !== 1 ? 's' : ''}
+                      </p>
+                      <p style={{ color: 'var(--text-3)', fontSize: 13 }}>
+                        Tower resets — game continues
+                      </p>
+                    </div>
+
+                    <motion.button
+                      className="btn-primary"
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleResetAfterFall}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.4 }}
+                    >
+                      {questionIndex + 1 >= QUESTION_COUNT ? 'See results →' : 'Keep going →'}
+                    </motion.button>
+                  </motion.div>
+                )}
+
+                {/* ── Complete ── */}
+                {phase === 'complete' && (
+                  <motion.div
+                    key="complete"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.35 }}
+                    style={{ paddingTop: 8, paddingBottom: 4 }}
+                  >
+                    <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: 'spring', stiffness: 260, damping: 16 }}
+                        style={{ fontSize: 52, marginBottom: 12 }}
+                      >
+                        🎉
+                      </motion.div>
+                      <h3 className="font-serif" style={{ fontSize: 32, color: 'var(--text-1)', marginBottom: 6 }}>
+                        Game over!
+                      </h3>
+                      <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
+                        You answered all {QUESTION_COUNT} questions together
+                      </p>
+                    </div>
+
+                    {/* Stats */}
+                    <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+                      {[
+                        { label: 'Best run', value: bestRun, unit: 'blocks', color: 'var(--green)' },
+                        { label: 'Avg. sync', value: `${avgAlignment}%`, color: 'var(--violet)' },
+                        { label: 'Collapses', value: totalCollapsed, color: 'var(--danger)' },
+                      ].map(stat => (
+                        <motion.div
+                          key={stat.label}
+                          className="card"
+                          initial={{ opacity: 0, y: 12 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          style={{ flex: 1, textAlign: 'center', padding: '14px 8px' }}
+                        >
+                          <p style={{ fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>
+                            {stat.value}
+                          </p>
+                          {stat.unit && (
+                            <p style={{ color: 'var(--text-3)', fontSize: 10, marginTop: 2 }}>{stat.unit}</p>
+                          )}
+                          <p style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            {stat.label}
+                          </p>
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    {/* Share */}
+                    <motion.button
+                      className="btn-primary"
+                      whileTap={{ scale: 0.98 }}
+                      style={{ background: 'var(--violet)', color: '#fff', marginBottom: 10 }}
+                      onClick={() => {
+                        const text = `🏗️ Common Ground\nBest run: ${bestRun} blocks | Avg sync: ${avgAlignment}% | Collapses: ${totalCollapsed}\nPlay at commonground.app`
+                        navigator.share?.({ text }) ?? navigator.clipboard?.writeText(text)
+                      }}
+                    >
+                      Share result
+                    </motion.button>
+
+                    <motion.button
+                      className="btn-primary"
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => window.location.reload()}
+                      style={{ marginBottom: 4 }}
+                    >
+                      Play again
+                    </motion.button>
+
+                    <button className="btn-ghost" onClick={() => navigate('/')}>
+                      Back to home
+                    </button>
+                  </motion.div>
+                )}
+
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Dropping phase: top hint + continue button ── */}
+      <AnimatePresence>
         {phase === 'dropping' && (
           <motion.div
-            key="dropping"
+            key="dropping-ui"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-x-0 top-0 flex flex-col items-center pt-10 pointer-events-none"
+            style={{
+              position: 'fixed', inset: 0, zIndex: 5,
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center',
+              pointerEvents: 'none',
+            }}
           >
-            <motion.p
-              animate={{ opacity: [0.4, 1, 0.4] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-              className="text-white text-sm font-medium bg-black/50 px-4 py-2 rounded-full"
+            {/* Top hint */}
+            <motion.div
+              initial={{ y: -20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              style={{
+                marginTop: 60,
+                background: 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid var(--border)',
+                borderRadius: 9999,
+                padding: '8px 18px',
+              }}
             >
-              Watch the tower...
-            </motion.p>
-          </motion.div>
-        )}
+              <p className="pulse" style={{ color: 'var(--text-1)', fontSize: 13, fontWeight: 500 }}>
+                Watch the block land...
+              </p>
+            </motion.div>
 
-        {/* ── Dropping: Continue button (after block settles) ── */}
-        {phase === 'dropping' && showContinueBtn && (
-          <motion.div
-            key="dropping-continue"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="absolute inset-x-0 bottom-0 flex flex-col items-center px-6 pb-10"
-          >
-            <motion.button
-              whileTap={{ scale: 0.98 }}
-              onClick={handleConfirmDrop}
-              className="w-full max-w-sm bg-white text-black rounded-2xl px-6 py-4 font-medium text-base"
-            >
-              Continue
-            </motion.button>
-          </motion.div>
-        )}
-
-        {/* ── Checking (tower stands) ── */}
-        {phase === 'checking' && (
-          <motion.div
-            key="checking"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 flex flex-col items-center justify-center px-6"
-          >
-            <div className="w-full max-w-sm text-center space-y-6">
-              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
-                <p className="text-gray-500 text-sm mb-4">
-                  {questionIndex + 1} block{questionIndex !== 0 ? 's' : ''} stacked
-                </p>
-                <h2 className="font-serif text-4xl text-white mb-2">Tower stands!</h2>
-                <p className="text-gray-500 text-sm">The tower holds strong</p>
-              </motion.div>
-
-              <motion.button
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleNextQuestion}
-                className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base"
-              >
-                {questionIndex + 1 >= QUESTION_COUNT ? 'Finish game' : 'Next question'}
-              </motion.button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ── Complete ── */}
-        {phase === 'complete' && (
-          <motion.div
-            key="complete"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="absolute inset-0 flex flex-col items-center justify-center px-6"
-          >
-            <div className="w-full max-w-sm text-center space-y-6">
-              <div>
-                <p className="text-gray-500 text-sm mb-4">Game complete</p>
-                <h2 className="font-serif text-4xl text-white mb-2">Congratulations!</h2>
-                <p className="text-gray-500 text-sm">You answered all {QUESTION_COUNT} questions</p>
-              </div>
-
-              <div className="bg-[#111] rounded-2xl p-8">
-                <p className="text-gray-500 text-xs uppercase tracking-widest mb-3">Final Tower</p>
-                <p className="text-white text-6xl font-bold mb-1">{QUESTION_COUNT}</p>
-                <p className="text-gray-500 text-sm">blocks stacked</p>
-              </div>
-
-              <div className="space-y-3">
-                <motion.button
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => window.location.reload()}
-                  className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base"
+            {/* Continue button */}
+            <AnimatePresence>
+              {showPhysicsBtn && (
+                <motion.div
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  style={{
+                    position: 'absolute', bottom: 0, left: 0, right: 0,
+                    padding: '0 20px',
+                    paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
+                    pointerEvents: 'auto',
+                  }}
                 >
-                  Play again
-                </motion.button>
-                <button
-                  onClick={() => navigate('/')}
-                  className="w-full text-gray-600 text-sm py-2 hover:text-gray-400 transition-colors"
-                >
-                  Back to home
-                </button>
-              </div>
-            </div>
+                  <motion.button
+                    className="btn-primary"
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleAfterDrop}
+                    style={{ background: 'var(--violet)', color: '#fff' }}
+                  >
+                    Looks good — continue
+                  </motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
-
-        {/* ── Failed ── */}
-        {phase === 'failed' && (
-          <motion.div
-            key="failed"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="absolute inset-0 flex flex-col items-center justify-center px-6"
-          >
-            <div className="w-full max-w-sm text-center space-y-6">
-              <div>
-                <p className="text-gray-500 text-sm mb-4">
-                  {questionIndex + 1} block{questionIndex !== 0 ? 's' : ''} placed
-                </p>
-                <h2 className="font-serif text-4xl text-white mb-2">Tower Collapsed</h2>
-                <p className="text-gray-500 text-sm">Better luck next time</p>
-              </div>
-
-              <div className="bg-[#111] rounded-2xl p-8">
-                <p className="text-gray-500 text-xs uppercase tracking-widest mb-3">Blocks Placed</p>
-                <p className="text-white text-6xl font-bold mb-1">{questionIndex + 1}</p>
-                <p className="text-gray-600 text-sm">out of {QUESTION_COUNT}</p>
-              </div>
-
-              <div className="space-y-3">
-                <motion.button
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => window.location.reload()}
-                  className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base"
-                >
-                  Try again
-                </motion.button>
-                <button
-                  onClick={() => navigate('/')}
-                  className="w-full text-gray-600 text-sm py-2 hover:text-gray-400 transition-colors"
-                >
-                  Back to home
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
       </AnimatePresence>
     </div>
   )

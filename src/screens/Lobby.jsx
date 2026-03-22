@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { motion } from 'motion/react'
+import { motion, AnimatePresence } from 'motion/react'
 import {
   myPlayer,
   usePlayersList,
@@ -20,21 +20,16 @@ export default function Lobby() {
   const me = myPlayer()
   const roomCode = getRoomCode()
 
-  // Guard: if Playroom isn't initialized navigate back
   useEffect(() => {
-    try {
-      myPlayer()
-    } catch {
-      navigate('/create-join')
-    }
+    try { myPlayer() } catch { navigate('/create-join') }
   }, [navigate])
 
-  // Auto-navigate when host starts game
+  // When host starts → navigate to rules (not /game)
   useEffect(() => {
-    if (gameStarted) navigate('/game')
+    if (gameStarted) navigate('/rules')
   }, [gameStarted, navigate])
 
-  // Both players ready → host starts game
+  // Both ready → host starts
   useEffect(() => {
     if (!isHost) return
     if (players.length === 2 && players.every(p => p.getState('ready'))) {
@@ -42,9 +37,7 @@ export default function Lobby() {
     }
   }, [players, isHost, setGameStarted])
 
-  const handleReady = () => {
-    me.setState('ready', true)
-  }
+  const handleReady = () => me.setState('ready', true)
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(roomCode)
@@ -57,121 +50,157 @@ export default function Lobby() {
     navigate('/create-join')
   }
 
-  const myState = me?.getState('ready')
+  const myReady = me?.getState('ready')
   const partner = players.find(p => p.id !== me?.id)
+  const partnerReady = partner?.getState('ready')
 
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6">
+    <div className="screen">
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm"
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        style={{ width: '100%', maxWidth: 400 }}
       >
-        {/* Title */}
-        <div className="text-center mb-10">
-          <p className="text-gray-500 text-sm tracking-wider mb-5">Two players</p>
-          <h1 className="font-serif text-5xl text-white leading-tight">
-            Alignment<br />
-            <span className="italic">Tower</span>
-          </h1>
+        {/* Header */}
+        <div style={{ marginBottom: 28 }}>
+          <h2 className="font-serif" style={{ fontSize: 32, color: 'var(--text-1)', marginBottom: 6 }}>
+            Waiting room
+          </h2>
+          <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
+            Share the code below with your partner
+          </p>
         </div>
 
-        {/* Room code card */}
-        <div className="bg-[#111] rounded-2xl p-6 mb-4 text-center">
-          <p className="text-gray-500 text-xs tracking-widest uppercase mb-3">Room Code</p>
-          <div className="flex items-center justify-center gap-3 mb-2">
-            <span className="text-white text-4xl font-bold tracking-wider font-mono">{roomCode}</span>
-            <button
+        {/* Room code */}
+        <div className="card" style={{ textAlign: 'center', marginBottom: 16 }}>
+          <p style={{ color: 'var(--text-3)', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
+            Room Code
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 6 }}>
+            <span style={{
+              fontSize: 36,
+              fontWeight: 800,
+              fontFamily: 'monospace',
+              letterSpacing: '0.15em',
+              color: 'var(--text-1)',
+            }}>
+              {roomCode}
+            </span>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
               onClick={handleCopyCode}
-              className="text-gray-500 hover:text-white transition-colors"
+              style={{
+                background: copied ? 'rgba(34,197,94,0.15)' : 'var(--surface2)',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                padding: '8px 10px',
+                cursor: 'pointer',
+                color: copied ? 'var(--green)' : 'var(--text-2)',
+                fontSize: 13,
+                minWidth: 64,
+              }}
             >
-              {copied ? (
-                <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-              )}
-            </button>
+              <AnimatePresence mode="wait">
+                {copied ? (
+                  <motion.span key="done" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    Copied!
+                  </motion.span>
+                ) : (
+                  <motion.span key="copy" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    Copy
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </motion.button>
           </div>
-          <p className="text-gray-600 text-sm">Share this with one person</p>
+          <p style={{ color: 'var(--text-3)', fontSize: 12 }}>Share with one person</p>
         </div>
 
-        {/* Player rows */}
-        <div className="space-y-2 mb-6">
+        {/* Players */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
           {/* Me */}
-          <div className="bg-[#111] rounded-2xl px-5 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="text-white text-sm font-medium">
+          <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} />
+              <span style={{ color: 'var(--text-1)', fontWeight: 500, fontSize: 15 }}>
                 {me?.getState('name') || 'You'}
               </span>
             </div>
-            <span className="text-gray-500 text-sm">you</span>
+            <span style={{ color: 'var(--text-3)', fontSize: 13 }}>you</span>
           </div>
 
           {/* Partner */}
           {partner ? (
-            <div className="bg-[#111] rounded-2xl px-5 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="text-white text-sm font-medium">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="card"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--cyan)' }} />
+                <span style={{ color: 'var(--text-1)', fontWeight: 500, fontSize: 15 }}>
                   {partner.getState('name') || 'Partner'}
                 </span>
               </div>
-              {partner.getState('ready') && (
-                <span className="text-green-400 text-sm">Ready</span>
+              {partnerReady && (
+                <span style={{ color: 'var(--green)', fontSize: 13 }}>Ready ✓</span>
               )}
-            </div>
+            </motion.div>
           ) : (
-            <div className="bg-[#111] rounded-2xl px-5 py-4 flex items-center gap-3">
+            <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px' }}>
               <motion.div
                 animate={{ opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-                className="w-2 h-2 rounded-full bg-gray-600"
+                transition={{ duration: 1.4, repeat: Infinity }}
+                style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--text-3)' }}
               />
-              <span className="text-gray-500 text-sm">Waiting for partner...</span>
+              <span style={{ color: 'var(--text-2)', fontSize: 14 }}>Waiting for partner...</span>
             </div>
           )}
         </div>
 
-        {/* Action */}
-        <div className="space-y-3">
-          {!myState ? (
+        {/* Actions */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {!myReady ? (
             <motion.button
+              className="btn-primary"
               whileTap={{ scale: 0.98 }}
               onClick={handleReady}
               disabled={!partner}
-              className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base disabled:bg-[#111] disabled:text-gray-600 transition-colors"
+              style={partner ? { background: 'var(--violet)', color: '#fff' } : {}}
             >
-              {partner ? 'Start game' : 'Waiting for player 2...'}
+              {partner ? "I'm ready!" : 'Waiting for player 2...'}
             </motion.button>
           ) : (
-            <div className="w-full bg-[#111] text-green-400 rounded-2xl px-6 py-4 font-medium text-base text-center">
+            <div style={{
+              width: '100%',
+              background: 'rgba(34,197,94,0.1)',
+              border: '1px solid rgba(34,197,94,0.3)',
+              color: 'var(--green)',
+              borderRadius: 16,
+              padding: '16px 24px',
+              textAlign: 'center',
+              fontWeight: 600,
+              fontSize: 16,
+            }}>
               ✓ Ready
             </div>
           )}
 
-          <button
-            onClick={handleLeave}
-            className="w-full text-gray-600 text-sm py-2 hover:text-gray-400 transition-colors"
-          >
-            Leave room
-          </button>
-        </div>
+          {/* Waiting label */}
+          {myReady && partner && !partnerReady && (
+            <motion.p
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 1.4, repeat: Infinity }}
+              style={{ textAlign: 'center', color: 'var(--text-2)', fontSize: 13, marginTop: 4 }}
+            >
+              Waiting for {partner.getState('name') || 'partner'} to ready up...
+            </motion.p>
+          )}
 
-        {/* Waiting for partner to be ready */}
-        {myState && partner && !partner.getState('ready') && (
-          <motion.p
-            animate={{ opacity: [0.4, 1, 0.4] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-            className="text-center text-gray-500 text-sm mt-6"
-          >
-            Waiting for {partner.getState('name') || 'partner'} to be ready...
-          </motion.p>
-        )}
+          <button className="btn-ghost" onClick={handleLeave}>Leave room</button>
+        </div>
       </motion.div>
     </div>
   )

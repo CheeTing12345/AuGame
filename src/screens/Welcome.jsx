@@ -13,43 +13,92 @@ export default function Welcome() {
   }
 
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6">
+    <div className="screen">
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-sm"
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        style={{ width: '100%', maxWidth: 400 }}
       >
-        {/* Title */}
-        <div className="text-center mb-16">
-          <p className="text-gray-500 text-sm tracking-wider mb-5">Two players</p>
-          <h1 className="font-serif text-5xl text-white leading-tight">
-            Alignment<br />
-            <span className="italic">Tower</span>
+        {/* Logo mark */}
+        <div style={{ textAlign: 'center', marginBottom: 48 }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            marginBottom: 20,
+          }}>
+            {[...Array(3)].map((_, i) => (
+              <motion.div
+                key={i}
+                initial={{ scaleY: 0.3, opacity: 0 }}
+                animate={{ scaleY: 1, opacity: 1 }}
+                transition={{ delay: i * 0.1 + 0.2, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                style={{
+                  width: 8 + i * 6,
+                  height: 28 + i * 10,
+                  borderRadius: 4,
+                  background: i === 0
+                    ? 'var(--violet)'
+                    : i === 1
+                      ? 'var(--cyan)'
+                      : 'var(--amber)',
+                  transformOrigin: 'bottom',
+                }}
+              />
+            ))}
+          </div>
+
+          <h1 className="font-serif" style={{
+            fontSize: 42,
+            color: 'var(--text-1)',
+            lineHeight: 1.15,
+            marginBottom: 8,
+          }}>
+            Common<br />
+            <span style={{ fontStyle: 'italic' }}>Ground</span>
           </h1>
+          <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
+            Build a tower, discover each other
+          </p>
         </div>
 
-        {/* Name input + Continue */}
-        <div className="space-y-3">
+        {/* Name input */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label style={{ color: 'var(--text-2)', fontSize: 13, marginBottom: 2 }}>
+            What's your name?
+          </label>
           <input
+            className="input"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleContinue()}
-            placeholder="Your name"
-            className="w-full bg-[#111] text-white rounded-2xl px-6 py-4 text-base placeholder-gray-600 focus:outline-none"
+            placeholder="Enter your name"
             maxLength={20}
             autoFocus
           />
           <motion.button
+            className="btn-primary"
             whileTap={{ scale: 0.98 }}
             onClick={handleContinue}
             disabled={!name.trim()}
-            className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base disabled:bg-[#111] disabled:text-gray-600 transition-colors"
+            style={{ marginTop: 4 }}
           >
             Continue
           </motion.button>
         </div>
+
+        <p style={{
+          textAlign: 'center',
+          color: 'var(--text-3)',
+          fontSize: 12,
+          marginTop: 32,
+          lineHeight: 1.6,
+        }}>
+          Two players · No account needed · Mobile friendly
+        </p>
       </motion.div>
     </div>
   )
