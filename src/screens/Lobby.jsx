@@ -1,42 +1,49 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { motion } from 'motion/react'
-import { getRoom, updatePlayerReady } from '../utils/room'
+import {
+  myPlayer,
+  usePlayersList,
+  useMultiplayerState,
+  useIsHost,
+  getRoomCode,
+} from 'playroomkit'
 
 export default function Lobby() {
   const navigate = useNavigate()
-  const [room, setRoom] = useState(null)
-  const [isReady, setIsReady] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  const roomCode = localStorage.getItem('currentRoomCode')
-  const myPlayerId = localStorage.getItem('playerId')
+  const players = usePlayersList(true)
+  const isHost = useIsHost()
+  const [gameStarted, setGameStarted] = useMultiplayerState('gameStarted', false)
 
+  const me = myPlayer()
+  const roomCode = getRoomCode()
+
+  // Guard: if Playroom isn't initialized navigate back
   useEffect(() => {
-    if (!roomCode) {
+    try {
+      myPlayer()
+    } catch {
       navigate('/create-join')
-      return
     }
+  }, [navigate])
 
-    const interval = setInterval(() => {
-      const currentRoom = getRoom(roomCode)
-      if (currentRoom) {
-        setRoom(currentRoom)
-        const player1Ready = currentRoom.player1?.ready || false
-        const player2Ready = currentRoom.player2?.ready || false
-        if (player1Ready && player2Ready && currentRoom.player2) {
-          navigate('/game')
-        }
-      }
-    }, 500)
+  // Auto-navigate when host starts game
+  useEffect(() => {
+    if (gameStarted) navigate('/game')
+  }, [gameStarted, navigate])
 
-    return () => clearInterval(interval)
-  }, [roomCode, navigate])
+  // Both players ready → host starts game
+  useEffect(() => {
+    if (!isHost) return
+    if (players.length === 2 && players.every(p => p.getState('ready'))) {
+      setGameStarted(true, true)
+    }
+  }, [players, isHost, setGameStarted])
 
   const handleReady = () => {
-    if (!room) return
-    setIsReady(true)
-    updatePlayerReady(roomCode, myPlayerId, true)
+    me.setState('ready', true)
   }
 
   const handleCopyCode = () => {
@@ -46,29 +53,12 @@ export default function Lobby() {
   }
 
   const handleLeave = () => {
-    localStorage.removeItem('currentRoomCode')
+    me.leaveRoom?.()
     navigate('/create-join')
   }
 
-  if (!room) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <motion.p
-          animate={{ opacity: [0.4, 1, 0.4] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-          className="text-gray-500 text-sm"
-        >
-          Loading room...
-        </motion.p>
-      </div>
-    )
-  }
-
-  const player1 = room.player1
-  const player2 = room.player2
-  const isPlayer1 = player1?.id === myPlayerId
-  const myPlayer = isPlayer1 ? player1 : player2
-  const otherPlayer = isPlayer1 ? player2 : player1
+  const myState = me?.getState('ready')
+  const partner = players.find(p => p.id !== me?.id)
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6">
@@ -115,19 +105,23 @@ export default function Lobby() {
           <div className="bg-[#111] rounded-2xl px-5 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-2 h-2 rounded-full bg-green-500" />
-              <span className="text-white text-sm font-medium">{myPlayer?.name}</span>
+              <span className="text-white text-sm font-medium">
+                {me?.getState('name') || 'You'}
+              </span>
             </div>
             <span className="text-gray-500 text-sm">you</span>
           </div>
 
           {/* Partner */}
-          {player2 ? (
+          {partner ? (
             <div className="bg-[#111] rounded-2xl px-5 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="text-white text-sm font-medium">{otherPlayer?.name || 'Partner'}</span>
+                <span className="text-white text-sm font-medium">
+                  {partner.getState('name') || 'Partner'}
+                </span>
               </div>
-              {otherPlayer?.ready && (
+              {partner.getState('ready') && (
                 <span className="text-green-400 text-sm">Ready</span>
               )}
             </div>
@@ -145,14 +139,14 @@ export default function Lobby() {
 
         {/* Action */}
         <div className="space-y-3">
-          {!isReady ? (
+          {!myState ? (
             <motion.button
               whileTap={{ scale: 0.98 }}
               onClick={handleReady}
-              disabled={!player2}
+              disabled={!partner}
               className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base disabled:bg-[#111] disabled:text-gray-600 transition-colors"
             >
-              {player2 ? 'Start game' : 'Waiting for player 2...'}
+              {partner ? 'Start game' : 'Waiting for player 2...'}
             </motion.button>
           ) : (
             <div className="w-full bg-[#111] text-green-400 rounded-2xl px-6 py-4 font-medium text-base text-center">
@@ -168,14 +162,14 @@ export default function Lobby() {
           </button>
         </div>
 
-        {/* Waiting for partner */}
-        {isReady && (!otherPlayer || !otherPlayer.ready) && (
+        {/* Waiting for partner to be ready */}
+        {myState && partner && !partner.getState('ready') && (
           <motion.p
             animate={{ opacity: [0.4, 1, 0.4] }}
             transition={{ duration: 1.5, repeat: Infinity }}
             className="text-center text-gray-500 text-sm mt-6"
           >
-            Waiting for {otherPlayer?.name || 'partner'} to be ready...
+            Waiting for {partner.getState('name') || 'partner'} to be ready...
           </motion.p>
         )}
       </motion.div>

@@ -1,34 +1,64 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { motion } from 'motion/react'
-import { createRoom, joinRoom } from '../utils/room'
+import { insertCoin, myPlayer } from 'playroomkit'
 
 export default function CreateJoin() {
   const navigate = useNavigate()
   const [roomCode, setRoomCode] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const playerName = localStorage.getItem('playerName') || 'Player'
 
-  const handleCreateRoom = () => {
+  const handleCreateRoom = async () => {
+    setLoading(true)
+    setError('')
     try {
-      const { code } = createRoom(playerName)
-      localStorage.setItem('currentRoomCode', code)
+      await insertCoin({ maxPlayersPerRoom: 2, skipLobby: true })
+      myPlayer().setState('name', playerName)
       navigate('/lobby')
     } catch (err) {
-      setError(err.message)
+      setError('Could not create room. Try again.')
+      setLoading(false)
     }
   }
 
-  const handleJoinRoom = () => {
+  const handleJoinRoom = async () => {
     if (!roomCode.trim()) return
+    setLoading(true)
+    setError('')
     try {
-      joinRoom(roomCode.toUpperCase().trim(), playerName)
-      localStorage.setItem('currentRoomCode', roomCode.toUpperCase().trim())
+      await insertCoin({
+        maxPlayersPerRoom: 2,
+        skipLobby: true,
+        roomCode: roomCode.toUpperCase().trim(),
+      })
+      myPlayer().setState('name', playerName)
       navigate('/lobby')
     } catch (err) {
-      setError(err.message)
+      const msg = err?.message || ''
+      if (msg.includes('ROOM_LIMIT_EXCEEDED')) {
+        setError('Room is full.')
+      } else {
+        setError('Could not join. Check the code and try again.')
+      }
+      setLoading(false)
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <motion.p
+          animate={{ opacity: [0.4, 1, 0.4] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+          className="text-gray-500 text-sm"
+        >
+          Connecting...
+        </motion.p>
+      </div>
+    )
   }
 
   return (

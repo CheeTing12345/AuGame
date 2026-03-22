@@ -1,118 +1,170 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'motion/react'
+import {
+  myPlayer,
+  usePlayersList,
+  useMultiplayerState,
+  useIsHost,
+} from 'playroomkit'
 import PhysicsTower from '../components/PhysicsTower'
 import QuadChart from '../components/QuadChart'
-import { questions } from '../data/questions'
-import { getRoom, submitAnswer, getPartnerAnswer, getMyPlayerNumber } from '../utils/room'
+import { allQuestions } from '../data/questions'
+
+const QUESTION_COUNT = 5
 
 export default function TowerGame() {
   const navigate = useNavigate()
   const towerRef = useRef(null)
-  const [gameState, setGameState] = useState('question')
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-  const [playerAnswer, setPlayerAnswer] = useState(null)
-  const [partnerAnswer, setPartnerAnswer] = useState(null)
-  const [distance, setDistance] = useState(0)
-  const [isTowerActive, setIsTowerActive] = useState(true)
-  const [waitingForPartner, setWaitingForPartner] = useState(false)
+  const isHost = useIsHost()
+  const players = usePlayersList(true) // re-render whenever any player state changes
 
-  const roomCode = localStorage.getItem('currentRoomCode')
-  const myPlayerNumber = getMyPlayerNumber()
-  const currentQuestion = questions[currentQuestionIndex]
+  // ── Global shared state (managed by host) ──
+  const [phase, setPhase] = useMultiplayerState('phase', 'question')
+  const [questionIndex, setQuestionIndex] = useMultiplayerState('questionIndex', 0)
+  const [questionIds, setQuestionIds] = useMultiplayerState('questionIds', null)
+  const [towerResult, setTowerResult] = useMultiplayerState('towerResult', null) // 'standing' | 'fallen'
 
-  // Poll for partner's answer
+  // ── Local UI state ──
+  const [localAnswer, setLocalAnswer] = useState(null)
+  const [submitted, setSubmitted] = useState(false)
+
+  const me = myPlayer()
+  const partner = players.find(p => p.id !== me?.id)
+
+  // Host picks the question set once on mount
   useEffect(() => {
-    if (!roomCode || gameState !== 'answer' || !playerAnswer || partnerAnswer) return
+    if (!isHost || questionIds) return
+    const shuffled = [...allQuestions]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, QUESTION_COUNT)
+      .map(q => q.id)
+    setQuestionIds(shuffled, true)
+  }, [isHost, questionIds, setQuestionIds])
 
-    const interval = setInterval(() => {
-      const partnerAns = getPartnerAnswer(roomCode, currentQuestionIndex, myPlayerNumber)
-      if (partnerAns) {
-        setPartnerAnswer(partnerAns)
-        setWaitingForPartner(false)
-        const dist = Math.sqrt(
-          Math.pow(playerAnswer.x - partnerAns.x, 2) +
-          Math.pow(playerAnswer.y - partnerAns.y, 2)
-        )
-        setDistance(dist)
-        setGameState('review')
-      }
-    }, 500)
+  // Reset local answer when question changes
+  useEffect(() => {
+    setLocalAnswer(null)
+    setSubmitted(false)
+  }, [questionIndex])
 
-    return () => clearInterval(interval)
-  }, [roomCode, gameState, playerAnswer, partnerAnswer, currentQuestionIndex, myPlayerNumber])
+  // Guard: if Playroom isn't initialized go back
+  useEffect(() => {
+    try { myPlayer() } catch { navigate('/create-join') }
+  }, [navigate])
 
-  const handleAnswer = (x, y) => {
-    setPlayerAnswer({ x, y })
-  }
+  // Derive current question from shared questionIds
+  const currentQuestion = questionIds
+    ? allQuestions.find(q => q.id === questionIds[questionIndex])
+    : null
+
+  // Get both players' answers for the current question
+  const myAnswer = me?.getState(`answer_${questionIndex}`)
+  const partnerAnswer = partner?.getState(`answer_${questionIndex}`)
+  const bothAnswered = myAnswer && partnerAnswer
+
+  // Host: when both answered → move to review
+  useEffect(() => {
+    if (!isHost || phase !== 'answer' || !bothAnswered) return
+    setPhase('review', true)
+  }, [isHost, phase, bothAnswered, setPhase])
+
+  // Host: handle tower result
+  useEffect(() => {
+    if (!isHost || phase !== 'dropping') return
+    const timer = setTimeout(() => {
+      if (towerResult !== 'fallen') setTowerResult('standing', true)
+    }, 3200)
+    return () => clearTimeout(timer)
+  }, [isHost, phase, towerResult, setTowerResult])
+
+  // Both: react to towerResult
+  useEffect(() => {
+    if (phase !== 'dropping' || !towerResult) return
+    if (towerResult === 'fallen') setPhase('failed', true)
+    else setPhase('checking', true)
+  }, [phase, towerResult, setPhase])
+
+  // ── Handlers ──
 
   const handleSubmitAnswer = () => {
-    if (!playerAnswer || !roomCode) return
-    submitAnswer(roomCode, myPlayerNumber, currentQuestionIndex, playerAnswer)
-    setWaitingForPartner(true)
-    const partnerAns = getPartnerAnswer(roomCode, currentQuestionIndex, myPlayerNumber)
-    if (partnerAns) {
-      setPartnerAnswer(partnerAns)
-      setWaitingForPartner(false)
-      const dist = Math.sqrt(
-        Math.pow(playerAnswer.x - partnerAns.x, 2) +
-        Math.pow(playerAnswer.y - partnerAns.y, 2)
-      )
-      setDistance(dist)
-      setGameState('review')
-    }
+    if (!localAnswer) return
+    me.setState(`answer_${questionIndex}`, localAnswer)
+    setSubmitted(true)
+    setPhase('answer', true) // ensure phase is 'answer' while waiting
   }
 
   const handleContinueToDrop = () => {
-    const offsetX = (playerAnswer.x - partnerAnswer.x) / 2
-    const alignmentScore = Math.max(0, 1 - distance / 2)
+    if (!myAnswer || !partnerAnswer) return
+    const offsetX = (myAnswer.x - partnerAnswer.x) / 2
+    const alignmentScore = Math.max(0, 1 - getDistance() / 2)
     towerRef.current?.dropBlock(offsetX, alignmentScore)
-    setGameState('dropping')
-    setTimeout(() => setGameState('checking'), 3000)
-  }
-
-  const handleNextQuestion = () => {
-    const nextIndex = currentQuestionIndex + 1
-    if (nextIndex >= questions.length) {
-      setGameState('complete')
-    } else {
-      setCurrentQuestionIndex(nextIndex)
-      setPlayerAnswer(null)
-      setPartnerAnswer(null)
-      setWaitingForPartner(false)
-      setGameState('question')
-    }
+    setTowerResult(null, true)
+    setPhase('dropping', true)
   }
 
   const handleTowerFall = () => {
-    setGameState('failed')
-    setIsTowerActive(false)
+    if (isHost) setTowerResult('fallen', true)
   }
 
-  const getAlignmentScore = () => Math.max(0, Math.round((1 - distance / 2) * 100))
+  const handleNextQuestion = () => {
+    const next = questionIndex + 1
+    if (next >= QUESTION_COUNT) {
+      setPhase('complete', true)
+    } else {
+      setQuestionIndex(next, true)
+      setPhase('question', true)
+    }
+  }
+
+  const getDistance = () => {
+    if (!myAnswer || !partnerAnswer) return 0
+    return Math.sqrt(
+      Math.pow(myAnswer.x - partnerAnswer.x, 2) +
+      Math.pow(myAnswer.y - partnerAnswer.y, 2)
+    )
+  }
+
+  const getAlignmentScore = () => Math.max(0, Math.round((1 - getDistance() / 2) * 100))
 
   const getAlignmentMessage = () => {
-    if (distance < 0.5) return 'Perfect alignment'
-    if (distance < 1.0) return 'Great minds think alike'
-    if (distance < 1.5) return 'Close enough'
+    const d = getDistance()
+    if (d < 0.5) return 'Perfect alignment'
+    if (d < 1.0) return 'Great minds think alike'
+    if (d < 1.5) return 'Close enough'
     return 'Interesting differences'
+  }
+
+  // Loading until question set is shared
+  if (!currentQuestion) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <motion.p
+          animate={{ opacity: [0.4, 1, 0.4] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+          className="text-gray-500 text-sm"
+        >
+          Loading game...
+        </motion.p>
+      </div>
+    )
   }
 
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
       {/* Tower ONLY visible during dropping */}
-      {gameState === 'dropping' && (
+      {phase === 'dropping' && (
         <PhysicsTower
           ref={towerRef}
           onTowerFall={handleTowerFall}
-          isActive={isTowerActive}
+          isActive={true}
         />
       )}
 
       <AnimatePresence mode="wait">
 
         {/* ── Question ── */}
-        {gameState === 'question' && (
+        {phase === 'question' && (
           <motion.div
             key="question"
             initial={{ opacity: 0 }}
@@ -121,39 +173,36 @@ export default function TowerGame() {
             className="absolute inset-0 flex flex-col items-center justify-center px-6"
           >
             <div className="w-full max-w-sm text-center">
-              {/* Progress */}
               <p className="text-gray-500 text-sm mb-3">
-                Question {currentQuestionIndex + 1} of {questions.length}
+                Question {questionIndex + 1} of {QUESTION_COUNT}
               </p>
               <div className="flex gap-1.5 justify-center mb-10">
-                {questions.map((_, i) => (
+                {Array.from({ length: QUESTION_COUNT }).map((_, i) => (
                   <div
                     key={i}
                     className={`h-0.5 flex-1 rounded-full transition-all ${
-                      i <= currentQuestionIndex ? 'bg-white' : 'bg-gray-800'
+                      i <= questionIndex ? 'bg-white' : 'bg-gray-800'
                     }`}
                   />
                 ))}
               </div>
 
-              {/* Question number circle */}
               <div className="flex justify-center mb-8">
                 <div
                   className="w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl font-bold"
                   style={{ background: 'linear-gradient(135deg, #7c3aed, #6366f1)' }}
                 >
-                  {currentQuestionIndex + 1}
+                  {questionIndex + 1}
                 </div>
               </div>
 
-              {/* Question text */}
               <h2 className="font-serif text-3xl text-white leading-snug mb-12 px-2">
                 {currentQuestion.prompt}
               </h2>
 
               <motion.button
                 whileTap={{ scale: 0.98 }}
-                onClick={() => setGameState('answer')}
+                onClick={() => setPhase('answer', true)}
                 className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base"
               >
                 Place your answer
@@ -163,7 +212,7 @@ export default function TowerGame() {
         )}
 
         {/* ── Answer ── */}
-        {gameState === 'answer' && (
+        {phase === 'answer' && (
           <motion.div
             key="answer"
             initial={{ opacity: 0 }}
@@ -172,37 +221,35 @@ export default function TowerGame() {
             className="absolute inset-0 flex flex-col items-center justify-between px-6 py-10"
           >
             <div className="w-full max-w-sm text-center">
-              <p className="text-gray-500 text-sm mb-2">
-                Question {currentQuestionIndex + 1}
-              </p>
+              <p className="text-gray-500 text-sm mb-2">Question {questionIndex + 1}</p>
               <h3 className="font-serif text-xl text-white leading-snug">{currentQuestion.prompt}</h3>
             </div>
 
             <QuadChart
               axes={currentQuestion.axes}
-              onAnswer={handleAnswer}
-              playerAnswer={playerAnswer}
-              interactive={!waitingForPartner}
+              onAnswer={(x, y) => setLocalAnswer({ x, y })}
+              playerAnswer={localAnswer}
+              interactive={!submitted}
             />
 
             <div className="w-full max-w-sm space-y-3">
-              {waitingForPartner ? (
+              {submitted ? (
                 <motion.p
                   animate={{ opacity: [0.4, 1, 0.4] }}
                   transition={{ duration: 1.5, repeat: Infinity }}
                   className="text-center text-gray-500 text-sm py-4"
                 >
-                  Waiting for your partner...
+                  Waiting for {partner?.getState('name') || 'partner'}...
                 </motion.p>
               ) : (
                 <>
-                  {playerAnswer && (
+                  {localAnswer && (
                     <p className="text-center text-gray-600 text-xs">Tap again to adjust</p>
                   )}
                   <motion.button
                     whileTap={{ scale: 0.98 }}
                     onClick={handleSubmitAnswer}
-                    disabled={!playerAnswer}
+                    disabled={!localAnswer}
                     className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base disabled:bg-[#111] disabled:text-gray-600 transition-colors"
                   >
                     Submit answer
@@ -214,7 +261,7 @@ export default function TowerGame() {
         )}
 
         {/* ── Review ── */}
-        {gameState === 'review' && playerAnswer && partnerAnswer && (
+        {phase === 'review' && myAnswer && partnerAnswer && (
           <motion.div
             key="review"
             initial={{ opacity: 0 }}
@@ -223,16 +270,10 @@ export default function TowerGame() {
             className="absolute inset-0 flex flex-col items-center justify-between px-6 py-10"
           >
             <div className="w-full max-w-sm text-center">
-              <p className="text-gray-500 text-sm mb-2">
-                Question {currentQuestionIndex + 1}
-              </p>
+              <p className="text-gray-500 text-sm mb-2">Question {questionIndex + 1}</p>
               <h3 className="font-serif text-xl text-white leading-snug mb-8">{currentQuestion.prompt}</h3>
 
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: 'spring' }}
-              >
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
                 <p className="text-white text-6xl font-bold mb-1">{getAlignmentScore()}%</p>
                 <p className="text-gray-500 text-sm">{getAlignmentMessage()}</p>
               </motion.div>
@@ -251,7 +292,7 @@ export default function TowerGame() {
               </div>
               <QuadChart
                 axes={currentQuestion.axes}
-                playerAnswer={playerAnswer}
+                playerAnswer={myAnswer}
                 partnerAnswer={partnerAnswer}
                 showAnswers={true}
               />
@@ -271,7 +312,7 @@ export default function TowerGame() {
         )}
 
         {/* ── Dropping ── */}
-        {gameState === 'dropping' && (
+        {phase === 'dropping' && (
           <motion.div
             key="dropping"
             initial={{ opacity: 0 }}
@@ -291,7 +332,7 @@ export default function TowerGame() {
         )}
 
         {/* ── Checking (tower stands) ── */}
-        {gameState === 'checking' && (
+        {phase === 'checking' && (
           <motion.div
             key="checking"
             initial={{ opacity: 0 }}
@@ -300,13 +341,9 @@ export default function TowerGame() {
             className="absolute inset-0 flex flex-col items-center justify-center px-6"
           >
             <div className="w-full max-w-sm text-center space-y-6">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: 'spring' }}
-              >
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
                 <p className="text-gray-500 text-sm mb-4">
-                  {currentQuestionIndex + 1} block{currentQuestionIndex !== 0 ? 's' : ''} stacked
+                  {questionIndex + 1} block{questionIndex !== 0 ? 's' : ''} stacked
                 </p>
                 <h2 className="font-serif text-4xl text-white mb-2">Tower stands!</h2>
                 <p className="text-gray-500 text-sm">The tower holds strong</p>
@@ -320,14 +357,14 @@ export default function TowerGame() {
                 onClick={handleNextQuestion}
                 className="w-full bg-white text-black rounded-2xl px-6 py-4 font-medium text-base"
               >
-                {currentQuestionIndex + 1 >= questions.length ? 'Finish game' : 'Next question'}
+                {questionIndex + 1 >= QUESTION_COUNT ? 'Finish game' : 'Next question'}
               </motion.button>
             </div>
           </motion.div>
         )}
 
         {/* ── Complete ── */}
-        {gameState === 'complete' && (
+        {phase === 'complete' && (
           <motion.div
             key="complete"
             initial={{ opacity: 0 }}
@@ -338,12 +375,12 @@ export default function TowerGame() {
               <div>
                 <p className="text-gray-500 text-sm mb-4">Game complete</p>
                 <h2 className="font-serif text-4xl text-white mb-2">Congratulations!</h2>
-                <p className="text-gray-500 text-sm">You answered all {questions.length} questions</p>
+                <p className="text-gray-500 text-sm">You answered all {QUESTION_COUNT} questions</p>
               </div>
 
               <div className="bg-[#111] rounded-2xl p-8">
                 <p className="text-gray-500 text-xs uppercase tracking-widest mb-3">Final Tower</p>
-                <p className="text-white text-6xl font-bold mb-1">{questions.length}</p>
+                <p className="text-white text-6xl font-bold mb-1">{QUESTION_COUNT}</p>
                 <p className="text-gray-500 text-sm">blocks stacked</p>
               </div>
 
@@ -367,7 +404,7 @@ export default function TowerGame() {
         )}
 
         {/* ── Failed ── */}
-        {gameState === 'failed' && (
+        {phase === 'failed' && (
           <motion.div
             key="failed"
             initial={{ opacity: 0 }}
@@ -377,7 +414,7 @@ export default function TowerGame() {
             <div className="w-full max-w-sm text-center space-y-6">
               <div>
                 <p className="text-gray-500 text-sm mb-4">
-                  {currentQuestionIndex + 1} block{currentQuestionIndex !== 0 ? 's' : ''} placed
+                  {questionIndex + 1} block{questionIndex !== 0 ? 's' : ''} placed
                 </p>
                 <h2 className="font-serif text-4xl text-white mb-2">Tower Collapsed</h2>
                 <p className="text-gray-500 text-sm">Better luck next time</p>
@@ -385,8 +422,8 @@ export default function TowerGame() {
 
               <div className="bg-[#111] rounded-2xl p-8">
                 <p className="text-gray-500 text-xs uppercase tracking-widest mb-3">Blocks Placed</p>
-                <p className="text-white text-6xl font-bold mb-1">{currentQuestionIndex + 1}</p>
-                <p className="text-gray-600 text-sm">out of {questions.length}</p>
+                <p className="text-white text-6xl font-bold mb-1">{questionIndex + 1}</p>
+                <p className="text-gray-600 text-sm">out of {QUESTION_COUNT}</p>
               </div>
 
               <div className="space-y-3">

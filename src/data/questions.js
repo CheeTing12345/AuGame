@@ -351,6 +351,10 @@ const allQuestions = [
   }
 ];
 
+export { allQuestions }
+
+// Kept for non-multiplayer fallback — in multiplayer the host
+// shares question indices via Playroom so both players see the same set.
 export const questions = allQuestions
   .sort(() => Math.random() - 0.5)
   .slice(0, 5)
