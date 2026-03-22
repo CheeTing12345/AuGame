@@ -29,7 +29,7 @@ export function createRoom(playerName) {
   }
   
   localStorage.setItem(`room_${code}`, JSON.stringify(room))
-  localStorage.setItem('myPlayerId', playerId)
+  localStorage.setItem('playerId', playerId)
   localStorage.setItem('myPlayerNumber', '1')
   
   return { code, playerId }
@@ -58,7 +58,7 @@ export function joinRoom(code, playerName) {
   }
   
   localStorage.setItem(roomKey, JSON.stringify(room))
-  localStorage.setItem('myPlayerId', playerId)
+  localStorage.setItem('playerId', playerId)
   localStorage.setItem('myPlayerNumber', '2')
   
   return { playerId, room }
@@ -97,6 +97,28 @@ export function setPlayerReady(code, playerNumber) {
   return room
 }
 
+// Alias for compatibility
+export function updatePlayerReady(code, playerId, ready) {
+  const room = getRoom(code)
+  if (!room) return null
+  
+  // Find which player this is
+  if (room.player1?.id === playerId) {
+    room.player1.ready = ready
+  } else if (room.player2?.id === playerId) {
+    room.player2.ready = ready
+  }
+  
+  // If both ready, start game
+  if (room.player1?.ready && room.player2?.ready) {
+    room.gameState = 'playing'
+  }
+  
+  localStorage.setItem(`room_${code}`, JSON.stringify(room))
+  return room
+}
+
+
 export function submitAnswer(code, playerNumber, questionIndex, answer) {
   const room = getRoom(code)
   if (!room) return null
@@ -125,7 +147,7 @@ export function getPartnerAnswer(code, questionIndex, myPlayerNumber) {
 
 export function leaveRoom(code) {
   localStorage.removeItem(`room_${code}`)
-  localStorage.removeItem('myPlayerId')
+  localStorage.removeItem('playerId')
   localStorage.removeItem('myPlayerNumber')
   localStorage.removeItem('currentRoomCode')
 }
