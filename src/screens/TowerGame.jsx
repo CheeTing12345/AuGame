@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useBlocker } from 'react-router'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   myPlayer,
@@ -36,11 +36,15 @@ export default function TowerGame() {
   const [alignmentSum,     setAlignmentSum]     = useMultiplayerState('alignmentSum',     0)
 
   // ── Local state ──
-  const [localAnswer,    setLocalAnswer]    = useState(null)
-  const [submitted,      setSubmitted]      = useState(false)
-  const [dropParams,     setDropParams]     = useState(null)
+  const [localAnswer,     setLocalAnswer]     = useState(null)
+  const [submitted,       setSubmitted]       = useState(false)
   const [showContinueBtn, setShowContinueBtn] = useState(false)
-  const [partnerLeft,    setPartnerLeft]    = useState(false)
+  const [partnerLeft,     setPartnerLeft]     = useState(false)
+
+  // Block in-app navigation during active game
+  const blocker = useBlocker(
+    !['complete'].includes(phase) && !partnerLeft
+  )
 
   const me      = myPlayer()
   const partner = players.find(p => p.id !== me?.id)
@@ -93,15 +97,27 @@ export default function TowerGame() {
     if (myA && pA) setPhase('review', true)
   }, [players, isHost, phase, questionIndex, me, partner, setPhase])
 
-  // Trigger drop after entering 'dropping'
+  // Trigger drop on BOTH clients when phase becomes 'dropping'
+  // Both derive identical params from the same shared answers
   useEffect(() => {
-    if (phase !== 'dropping' || !dropParams) return
+    if (phase !== 'dropping') return
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const mA = me?.getState(`answer_${questionIndex}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const pA = partner?.getState(`answer_${questionIndex}`)
+    if (!mA || !pA) return
+
+    const deviation      = Math.abs(mA - pA) / 4
+    const alignScore     = 1 - deviation
+    const direction      = questionIndex % 2 === 0 ? 1 : -1
+    const offsetX        = direction * deviation * MAX_OFFSET_RATIO
+
     const frame = requestAnimationFrame(() => {
-      towerRef.current?.dropBlock(dropParams.offsetX, dropParams.alignmentScore)
+      towerRef.current?.dropBlock(offsetX, alignScore)
     })
-    const t = setTimeout(() => setShowContinueBtn(true), 3800)
+    const t = setTimeout(() => setShowContinueBtn(true), 3500)
     return () => { cancelAnimationFrame(frame); clearTimeout(t) }
-  }, [phase, dropParams])
+  }, [phase, questionIndex]) // intentionally omit me/partner — stable at this point
 
   // Sync tower fall → failed phase
   useEffect(() => {
@@ -136,12 +152,7 @@ export default function TowerGame() {
 
   const handleDropBlock = () => {
     if (!myAnswer || !partnerAnswer) return
-    const deviation      = getDeviation()
-    const alignmentScore = 1 - deviation
-    const direction      = questionIndex % 2 === 0 ? 1 : -1
-    const offsetX        = direction * deviation * MAX_OFFSET_RATIO
     if (isHost) setAlignmentSum(alignmentSum + getAlignmentScore(), true)
-    setDropParams({ offsetX, alignmentScore })
     setTowerResult(null, true)
     setShowContinueBtn(false)
     setPhase('dropping', true)
@@ -667,6 +678,63 @@ export default function TowerGame() {
                 </motion.div>
               )}
             </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Leave confirmation modal ── */}
+      <AnimatePresence>
+        {blocker.state === 'blocked' && (
+          <motion.div
+            key="leave-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position:       'absolute', inset: 0, zIndex: 50,
+              display:        'flex', alignItems: 'center', justifyContent: 'center',
+              background:     'rgba(0,0,0,0.75)',
+              backdropFilter: 'blur(12px)',
+              padding:        '24px',
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 16 }}
+              animate={{ scale: 1,   opacity: 1, y: 0  }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+              style={{
+                background:   'var(--surface)',
+                border:       '1px solid var(--border)',
+                borderRadius: 24,
+                padding:      '28px 24px',
+                width:        '100%',
+                textAlign:    'center',
+              }}
+            >
+              <p style={{ fontSize: 36, marginBottom: 12 }}>⚠️</p>
+              <h3 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-1)', marginBottom: 8 }}>
+                Leave the game?
+              </h3>
+              <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 28, lineHeight: 1.5 }}>
+                Your partner will be left behind and the game will end for them.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <button
+                  className="btn-primary"
+                  onClick={() => blocker.reset()}
+                  style={{ background: 'var(--violet)', color: '#fff' }}
+                >
+                  Stay in game
+                </button>
+                <button
+                  className="btn-ghost"
+                  onClick={() => blocker.proceed()}
+                >
+                  Leave anyway
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

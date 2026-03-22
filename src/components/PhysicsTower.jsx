@@ -1,153 +1,237 @@
-import { useRef, useState, useImperativeHandle, forwardRef, useCallback, useEffect } from 'react'
+import { useRef, useState, useImperativeHandle, forwardRef, useEffect } from 'react'
 
-const BLOCK_H            = 28
-const GRAVITY            = 0.55
-const MAX_VELOCITY       = 16
-const COLLAPSE_THRESHOLD = 0.22   // overlap fraction below which the tower collapses
+const GRAVITY      = 0.44
+const FRICTION_X   = 0.86
+const FRICTION_AV  = 0.84
+const RESTITUTION  = 0.08
+const BLOCK_H      = 32          // 4px thicker than before
+const FALL_ROT     = 62          // degrees — collapsed if exceeded
+const FALL_Y_EXTRA = 80          // px below ground
+const WIDTH_RATIO  = 0.66        // block width relative to container
+
+// Block is sleeping (treated as static) when essentially stopped
+const sleeping = b =>
+  !b.falling &&
+  Math.abs(b.vy) < 0.12 &&
+  Math.abs(b.vx) < 0.10 &&
+  Math.abs(b.av) < 0.018
 
 const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
-  const innerRef      = useRef(null)   // the bordered container box
-  const blocksRef     = useRef([])
-  const animRef       = useRef(null)
-  const hasFallenRef  = useRef(false)
+  const innerRef     = useRef(null)
+  const blocksRef    = useRef([])
+  const animRef      = useRef(null)
+  const hasFallenRef = useRef(false)
+  // Container dimensions resolved once at mount
+  const dimsRef      = useRef({ w: 0, h: 0, groundY: 0, blockW: 0 })
 
   const [blocks,       setBlocks]       = useState([])
-  const [fallingBlock, setFallingBlock] = useState(null)
-  const [scrollOffset, setScrollOffset] = useState(0)
+  const [cameraOffset, setCameraOffset] = useState(0)
 
-  // Read container dimensions live (avoids stale closure issues)
-  const getDims = () => {
+  // Measure the bordered container once after mount
+  useEffect(() => {
     const el = innerRef.current
-    if (!el) return null
+    if (!el) return
     const { width: w, height: h } = el.getBoundingClientRect()
-    return { w, h }
-  }
+    dimsRef.current = {
+      w,
+      h,
+      groundY: h - 12,
+      blockW:  Math.round(w * WIDTH_RATIO),
+    }
+  }, [])
 
+  // ── Physics loop — always running ──────────────────────────────────
+  useEffect(() => {
+    const step = () => {
+      const { w, h, groundY, blockW } = dimsRef.current
+
+      // Skip when no blocks or container not yet measured
+      if (!w || blocksRef.current.length === 0) {
+        animRef.current = requestAnimationFrame(step)
+        return
+      }
+
+      let bs = blocksRef.current
+
+      // 1. Integrate — skip sleeping blocks
+      bs = bs.map(b => {
+        if (sleeping(b)) return b
+        const newVy = b.vy + GRAVITY
+        const newVx = b.vx * FRICTION_X
+        // No spin while in free-fall — only after touching surface
+        const newAv = b.falling ? 0 : b.av * FRICTION_AV
+        return {
+          ...b,
+          vy:       newVy,
+          vx:       newVx,
+          av:       newAv,
+          x:        b.x + newVx,
+          y:        b.y + newVy,
+          rotation: b.rotation + newAv,
+        }
+      })
+
+      // 2. Ground collision
+      bs = bs.map(b => {
+        if (b.y + BLOCK_H < groundY) return b
+        const nb = { ...b, y: groundY - BLOCK_H, falling: false }
+        if (Math.abs(nb.vy) > 0.5) nb.vy = -nb.vy * RESTITUTION
+        else nb.vy = 0
+        nb.vx *= 0.65
+        nb.av *= 0.65
+        return nb
+      })
+
+      // 3. Wall collision
+      bs = bs.map(b => {
+        if (sleeping(b)) return b
+        const nb    = { ...b }
+        const left  = blockW / 2
+        const right = w - blockW / 2
+        if (nb.x < left)  { nb.x = left;  nb.vx =  Math.abs(nb.vx) * 0.25 }
+        if (nb.x > right) { nb.x = right; nb.vx = -Math.abs(nb.vx) * 0.25 }
+        return nb
+      })
+
+      // 4. Block–block collisions (all pairs)
+      for (let i = 0; i < bs.length - 1; i++) {
+        for (let j = i + 1; j < bs.length; j++) {
+          const a = bs[i], b_ = bs[j]
+
+          // Horizontal overlap required
+          if (Math.abs(a.x - b_.x) >= blockW) continue
+
+          // Determine which is on top (smaller y = higher on screen)
+          const topIdx = a.y <= b_.y ? i : j
+          const botIdx = a.y <= b_.y ? j : i
+          const top    = bs[topIdx]
+          const bot    = bs[botIdx]
+
+          // Vertical overlap: top's bottom crosses bot's top edge
+          if (!(top.y + BLOCK_H > bot.y && top.y < bot.y)) continue
+
+          const botSleeping = sleeping(bot)
+
+          // Snap top block onto bot surface
+          bs[topIdx] = { ...bs[topIdx], y: bot.y - BLOCK_H, falling: false }
+
+          // Vertical bounce
+          if (Math.abs(bs[topIdx].vy) > 0.5) {
+            bs[topIdx] = { ...bs[topIdx], vy: -bs[topIdx].vy * RESTITUTION }
+          } else {
+            bs[topIdx] = { ...bs[topIdx], vy: 0 }
+          }
+
+          // Lateral impulse — the key to sliding/toppling:
+          // offset from center of block below → pushes block sideways
+          const dx          = bs[topIdx].x - bot.x
+          const lateralPush = (dx / (blockW * 0.5)) * 0.68
+          bs[topIdx] = {
+            ...bs[topIdx],
+            vx: bs[topIdx].vx * 0.50 + lateralPush,
+            av: bs[topIdx].av * 0.55 + dx * 0.0007,
+          }
+
+          // Never disturb sleeping bottom block
+          if (!botSleeping) {
+            bs[botIdx] = { ...bs[botIdx], vy: bs[botIdx].vy - 0.04 }
+          }
+        }
+      }
+
+      blocksRef.current = bs
+      setBlocks([...bs])
+
+      // 5. Camera — lerp toward top of tower (no CSS transition needed)
+      const topY   = Math.min(...bs.map(b => b.y))
+      const pad    = h * 0.22
+      const target = Math.max(0, topY - pad)
+      setCameraOffset(prev => prev + (target - prev) * 0.055)
+
+      // 6. Fall detection — only settled blocks trigger collapse
+      if (!hasFallenRef.current) {
+        const fallen = bs.some(b =>
+          (!b.falling && Math.abs(b.rotation) > FALL_ROT) ||
+          b.y > groundY + FALL_Y_EXTRA
+        )
+        if (fallen) {
+          hasFallenRef.current = true
+          onTowerFall()
+        }
+      }
+
+      animRef.current = requestAnimationFrame(step)
+    }
+
+    animRef.current = requestAnimationFrame(step)
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current) }
+  }, [onTowerFall])
+
+  // ── Imperative handle ──────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
     dropBlock: (offsetX, alignmentScore) => {
-      const dims = getDims()
-      if (!dims) return
-      const { w, h } = dims
+      const { w, groundY, blockW } = dimsRef.current
+      if (!w) return
 
       hasFallenRef.current = false
 
-      const blockW   = Math.round(w * 0.52)
-      const groundY  = h - 12                          // bottom of the box
-      const centerX  = w / 2
       const hue      = alignmentScore * 120
-
-      // X position: center ± deviation, clamped inside box
+      const centerX  = w / 2
       const rawX     = centerX + offsetX * w * 0.36
       const clampedX = Math.max(blockW / 2 + 6, Math.min(w - blockW / 2 - 6, rawX))
 
-      // Target Y: stacks upward from the ground
-      const stackCount = blocksRef.current.length
-      const targetY    = groundY - (stackCount + 1) * BLOCK_H
-
-      // Static tilt: proportional to x offset, capped at ±10°
-      const tiltDeg  = ((clampedX - centerX) / (w / 2)) * 9
-
-      const block = {
+      const newBlock = {
         id:       Date.now(),
         x:        clampedX,
-        targetY,
-        width:    blockW,
-        height:   BLOCK_H,
-        rotation: tiltDeg,
+        y:        -BLOCK_H,
+        vx:       0,
+        vy:       2,
+        av:       0,
+        rotation: 0,
+        falling:  true,
         color:    `hsl(${hue}, 72%, 52%)`,
+        width:    blockW,
       }
 
-      // ── Animate fall ────────────────────────────────────────────
-      if (animRef.current) cancelAnimationFrame(animRef.current)
-
-      let y   = -BLOCK_H
-      let vel = 2
-
-      const step = () => {
-        vel = Math.min(vel + GRAVITY, MAX_VELOCITY)
-        y  += vel
-
-        if (y >= block.targetY) {
-          y = block.targetY
-          const settled = { ...block, y }
-          blocksRef.current = [...blocksRef.current, settled]
-          setBlocks([...blocksRef.current])
-          setFallingBlock(null)
-
-          // Scroll camera up if tower is getting tall
-          const topY = groundY - blocksRef.current.length * BLOCK_H
-          const pad  = h * 0.20
-          if (topY < pad) {
-            setScrollOffset(prev =>
-              Math.max(prev, pad - topY)
-            )
-          }
-
-          // Collapse check: if overlap between this block and previous < threshold
-          if (!hasFallenRef.current && blocksRef.current.length > 1) {
-            const prev    = blocksRef.current[blocksRef.current.length - 2]
-            const overlap = blockW - Math.abs(settled.x - prev.x)
-            if (overlap < blockW * COLLAPSE_THRESHOLD) {
-              hasFallenRef.current = true
-              onTowerFall()
-            }
-          }
-          return
-        }
-
-        setFallingBlock({ ...block, y })
-        animRef.current = requestAnimationFrame(step)
-      }
-
-      setFallingBlock({ ...block, y })
-      animRef.current = requestAnimationFrame(step)
+      blocksRef.current = [...blocksRef.current, newBlock]
+      setBlocks([...blocksRef.current])
     },
 
     resetBlocks: () => {
-      if (animRef.current) cancelAnimationFrame(animRef.current)
       blocksRef.current    = []
       hasFallenRef.current = false
       setBlocks([])
-      setFallingBlock(null)
-      setScrollOffset(0)
+      setCameraOffset(0)
     },
   }))
 
-  // Cleanup on unmount
   useEffect(() => () => {
     if (animRef.current) cancelAnimationFrame(animRef.current)
   }, [])
 
-  const allBlocks = fallingBlock ? [...blocks, fallingBlock] : blocks
-
   return (
     <div style={{ position: 'absolute', inset: 0, background: 'var(--bg)' }}>
 
-      {/* ── Bordered container (the tower box) ── */}
+      {/* Bordered tower container */}
       <div
         ref={innerRef}
         style={{
           position:     'absolute',
-          left:         18,
-          right:        18,
-          top:          68,
-          bottom:       76,
+          left:         18, right: 18,
+          top:          68, bottom: 76,
           border:       '1px solid var(--border)',
           borderRadius: 20,
           overflow:     'hidden',
           background:   '#09090b',
         }}
       >
-        {/* Camera-scrolled layer */}
+        {/* Camera layer — translateY pans up as tower grows */}
         <div style={{
-          position:   'absolute',
-          inset:      0,
-          transform:  `translateY(${-scrollOffset}px)`,
-          transition: 'transform 0.6s cubic-bezier(0.22, 1, 0.36, 1)',
+          position: 'absolute',
+          inset:    0,
+          transform: `translateY(${-cameraOffset}px)`,
         }}>
-
-          {/* Empty hint */}
-          {allBlocks.length === 0 && (
+          {blocks.length === 0 && (
             <div style={{
               position:  'absolute',
               bottom:    18,
@@ -160,8 +244,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
             </div>
           )}
 
-          {/* Blocks */}
-          {allBlocks.map(block => (
+          {blocks.map(block => (
             <div
               key={block.id}
               style={{
@@ -169,10 +252,10 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
                 left:            block.x - block.width / 2,
                 top:             block.y,
                 width:           block.width,
-                height:          block.height,
+                height:          BLOCK_H,
                 transform:       `rotate(${block.rotation}deg)`,
                 transformOrigin: 'center center',
-                willChange:      'top',
+                willChange:      'transform, top, left',
               }}
             >
               {/* Glow */}
@@ -182,7 +265,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
                 borderRadius: 6,
                 background:   block.color,
                 filter:       'blur(5px)',
-                opacity:      0.30,
+                opacity:      0.28,
                 transform:    'translateY(3px)',
               }} />
               {/* Body */}
@@ -194,7 +277,6 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
                 border:       '1px solid rgba(255,255,255,0.11)',
                 overflow:     'hidden',
               }}>
-                {/* Top highlight */}
                 <div style={{
                   position:     'absolute',
                   top: 0, left: 0, right: 0,
@@ -208,7 +290,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
         </div>
       </div>
 
-      {/* ── Block counter ── */}
+      {/* Block counter */}
       {blocks.length > 0 && (
         <div style={{
           position:       'absolute',
