@@ -11,7 +11,7 @@ import PhysicsTower from '../components/PhysicsTower'
 import SliderInput from '../components/SliderInput'
 import { allQuestions } from '../data/questions'
 
-const QUESTION_COUNT  = 15
+const QUESTION_COUNT  = 20
 const MAX_OFFSET_RATIO = 0.35
 
 function pickQuestions(n) {
