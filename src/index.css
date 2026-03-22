@@ -10,4 +10,9 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: #000;
+}
+
+.font-serif {
+  font-family: 'Playfair Display', Georgia, serif;
 }
