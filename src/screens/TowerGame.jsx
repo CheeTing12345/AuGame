@@ -447,7 +447,7 @@ export default function TowerGame() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.35 }}
                     >
-                      Drop the block 🧱
+                      Drop the block
                     </motion.button>
                   </motion.div>
                 )}

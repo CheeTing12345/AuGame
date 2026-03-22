@@ -3,7 +3,7 @@ import { useRef, useState, useImperativeHandle, forwardRef, useCallback, useEffe
 const BLOCK_H            = 28
 const GRAVITY            = 0.55
 const MAX_VELOCITY       = 16
-const COLLAPSE_THRESHOLD = 0.28   // overlap fraction below which the tower collapses
+const COLLAPSE_THRESHOLD = 0.22   // overlap fraction below which the tower collapses
 
 const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
   const innerRef      = useRef(null)   // the bordered container box
@@ -31,7 +31,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
 
       hasFallenRef.current = false
 
-      const blockW   = Math.round(w * 0.70)
+      const blockW   = Math.round(w * 0.52)
       const groundY  = h - 12                          // bottom of the box
       const centerX  = w / 2
       const hue      = alignmentScore * 120

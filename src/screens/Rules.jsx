@@ -10,22 +10,18 @@ import {
 
 const RULES = [
   {
-    icon: '❓',
     title: 'Answer honestly',
     body: 'Each question has a 5-point scale. Pick the option that feels most like you — no right or wrong.',
   },
   {
-    icon: '🧱',
     title: 'Build together',
     body: 'The closer your answers, the more centered the block drops. Big differences mean it lands off-center.',
   },
   {
-    icon: '⚠️',
     title: 'Keep it balanced',
     body: "If the tower leans too far and collapses, it resets — but the game keeps going.",
   },
   {
-    icon: '🏆',
     title: 'See how you stack up',
     body: "After all questions, you'll see your final tower and how aligned you were.",
   },
@@ -62,7 +58,7 @@ export default function Rules() {
   }
 
   return (
-    <div className="screen" style={{ justifyContent: 'flex-start', paddingTop: 40 }}>
+    <div className="screen" style={{ justifyContent: 'flex-start', paddingTop: 20 }}>
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
@@ -70,18 +66,17 @@ export default function Rules() {
         style={{ width: '100%', maxWidth: 400 }}
       >
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>🏗️</div>
-          <h2 className="font-serif" style={{ fontSize: 32, color: 'var(--text-1)', marginBottom: 8 }}>
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <h2 className="font-serif" style={{ fontSize: 28, color: 'var(--text-1)', marginBottom: 6 }}>
             How it works
           </h2>
-          <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
+          <p style={{ color: 'var(--text-2)', fontSize: 13 }}>
             Read through before you start building
           </p>
         </div>
 
         {/* Rules list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 32 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
           {RULES.map((rule, i) => (
             <motion.div
               key={i}
@@ -89,14 +84,22 @@ export default function Rules() {
               initial={{ opacity: 0, x: -16 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.08 + 0.2, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-              style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}
+              style={{ display: 'flex', gap: 14, alignItems: 'flex-start', padding: '14px 16px' }}
             >
-              <span style={{ fontSize: 22, lineHeight: 1, marginTop: 2, flexShrink: 0 }}>{rule.icon}</span>
+              <div style={{
+                width: 24, height: 24, borderRadius: '50%',
+                background: 'var(--surface2)', border: '1px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700, color: 'var(--text-3)',
+                flexShrink: 0, marginTop: 1,
+              }}>
+                {i + 1}
+              </div>
               <div>
-                <p style={{ color: 'var(--text-1)', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
+                <p style={{ color: 'var(--text-1)', fontWeight: 600, fontSize: 14, marginBottom: 3 }}>
                   {rule.title}
                 </p>
-                <p style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.5 }}>
+                <p style={{ color: 'var(--text-2)', fontSize: 12, lineHeight: 1.5 }}>
                   {rule.body}
                 </p>
               </div>
