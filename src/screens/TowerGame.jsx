@@ -41,6 +41,7 @@ export default function TowerGame() {
   const [showContinueBtn, setShowContinueBtn] = useState(false)
   const [partnerLeft,     setPartnerLeft]     = useState(false)
   const [showLeaveModal,  setShowLeaveModal]  = useState(false)
+  const hasDroppedRef = useRef(false)
 
   // Safe player access — myPlayer() throws if PlayroomKit not initialised
   let me = null
@@ -96,6 +97,7 @@ export default function TowerGame() {
     setLocalAnswer(null)
     setSubmitted(false)
     setShowContinueBtn(false)
+    hasDroppedRef.current = false
   }, [questionIndex])
 
   // Host: both answered → review
@@ -106,27 +108,30 @@ export default function TowerGame() {
     if (myA && pA) setPhase('review', true)
   }, [players, isHost, phase, questionIndex, me, partner, setPhase])
 
-  // Trigger drop on BOTH clients when phase becomes 'dropping'
-  // Both derive identical params from the same shared answers
+  // Trigger drop on BOTH clients when phase becomes 'dropping'.
+  // Re-runs if answers haven't arrived yet (PlayroomKit sync delay).
+  // hasDroppedRef prevents calling dropBlock more than once per question.
   useEffect(() => {
-    if (phase !== 'dropping') return
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const mA = me?.getState(`answer_${questionIndex}`)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const pA = partner?.getState(`answer_${questionIndex}`)
-    if (!mA || !pA) return
+    if (phase !== 'dropping') { hasDroppedRef.current = false; return }
+    if (hasDroppedRef.current) return
 
-    const deviation      = Math.abs(mA - pA) / 4
-    const alignScore     = 1 - deviation
-    const direction      = questionIndex % 2 === 0 ? 1 : -1
-    const offsetX        = direction * deviation * MAX_OFFSET_RATIO
+    const mA = me?.getState(`answer_${questionIndex}`)
+    const pA = partner?.getState(`answer_${questionIndex}`)
+    if (!mA || !pA) return   // wait — effect re-runs when answers arrive
+
+    hasDroppedRef.current = true
+
+    const deviation  = Math.abs(mA - pA) / 4
+    const alignScore = 1 - deviation
+    const direction  = questionIndex % 2 === 0 ? 1 : -1
+    const offsetX    = direction * deviation * MAX_OFFSET_RATIO
 
     const frame = requestAnimationFrame(() => {
       towerRef.current?.dropBlock(offsetX, alignScore)
     })
     const t = setTimeout(() => setShowContinueBtn(true), 3500)
     return () => { cancelAnimationFrame(frame); clearTimeout(t) }
-  }, [phase, questionIndex]) // intentionally omit me/partner — stable at this point
+  }, [phase, questionIndex, myAnswer, partnerAnswer])
 
   // Sync tower fall → failed phase
   useEffect(() => {
@@ -493,7 +498,7 @@ export default function TowerGame() {
                       Tower stands!
                     </h3>
                     <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 24 }}>
-                      {questionIndex + 1} block{questionIndex !== 0 ? 's' : ''} stacked
+                      {currentRunBlocks} block{currentRunBlocks !== 1 ? 's' : ''} in this run
                     </p>
                     <motion.button
                       className="btn-primary"
