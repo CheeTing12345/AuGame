@@ -48,6 +48,13 @@ export default function TowerGame() {
   try { me = myPlayer() } catch {}
   const partner = players.find(p => p.id !== me?.id)
 
+  // Derived values — must be above all effects that use them
+  const currentQuestion = questionIds
+    ? allQuestions.find(q => q.id === questionIds[questionIndex])
+    : null
+  const myAnswer      = me?.getState(`answer_${questionIndex}`)
+  const partnerAnswer = partner?.getState(`answer_${questionIndex}`)
+
   // Guard
   useEffect(() => {
     try { myPlayer() } catch { navigate('/create-join') }
@@ -132,13 +139,6 @@ export default function TowerGame() {
     const t = setTimeout(() => setShowContinueBtn(true), 3500)
     return () => { cancelAnimationFrame(frame); clearTimeout(t) }
   }, [phase, questionIndex, myAnswer, partnerAnswer])
-
-  // Derived — declared before effects that depend on them
-  const currentQuestion = questionIds
-    ? allQuestions.find(q => q.id === questionIds[questionIndex])
-    : null
-  const myAnswer      = me?.getState(`answer_${questionIndex}`)
-  const partnerAnswer = partner?.getState(`answer_${questionIndex}`)
 
   // Sync tower fall → failed phase
   useEffect(() => {
