@@ -45,7 +45,7 @@ body {
   max-width: 430px;
   height: 100%;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden; /* clip horizontal only — screens scroll vertically */
   background: var(--bg);
 }
 
@@ -117,14 +117,14 @@ body {
 .screen {
   position: relative;
   z-index: 1;
-  height: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 24px 20px;
   padding-bottom: max(24px, env(safe-area-inset-bottom, 24px));
-  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ── Cards / surfaces ── */
