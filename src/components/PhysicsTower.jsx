@@ -1,10 +1,10 @@
 import { useRef, useState, useImperativeHandle, forwardRef, useEffect } from 'react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const BLOCK_H        = 32
+const BLOCK_H        = 36
 const GRAVITY        = 0.52
 const MAX_VEL        = 18
-const WIDTH_RATIO    = 0.66
+const WIDTH_RATIO    = 0.33
 // Collapse if the new block's x-center is more than this fraction of blockW
 // away from the block below it (i.e. barely hanging on)
 const COLLAPSE_OVERHANG = 0.52   // > 52% overhang → collapse
