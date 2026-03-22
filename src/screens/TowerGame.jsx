@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useNavigate, useBlocker } from 'react-router'
+import { useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   myPlayer,
@@ -40,13 +40,11 @@ export default function TowerGame() {
   const [submitted,       setSubmitted]       = useState(false)
   const [showContinueBtn, setShowContinueBtn] = useState(false)
   const [partnerLeft,     setPartnerLeft]     = useState(false)
+  const [showLeaveModal,  setShowLeaveModal]  = useState(false)
 
-  // Block in-app navigation during active game
-  const blocker = useBlocker(
-    !['complete'].includes(phase) && !partnerLeft
-  )
-
-  const me      = myPlayer()
+  // Safe player access — myPlayer() throws if PlayroomKit not initialised
+  let me = null
+  try { me = myPlayer() } catch {}
   const partner = players.find(p => p.id !== me?.id)
 
   // Guard
@@ -54,12 +52,24 @@ export default function TowerGame() {
     try { myPlayer() } catch { navigate('/create-join') }
   }, [navigate])
 
-  // Prevent accidental refresh / tab close
+  // Warn on browser refresh / tab close
   useEffect(() => {
     const handle = (e) => { e.preventDefault(); e.returnValue = '' }
     window.addEventListener('beforeunload', handle)
     return () => window.removeEventListener('beforeunload', handle)
   }, [])
+
+  // Intercept back button — push a dummy history entry so we can catch it
+  useEffect(() => {
+    if (['complete'].includes(phase) || partnerLeft) return
+    window.history.pushState(null, '', window.location.href)
+    const handle = () => {
+      setShowLeaveModal(true)
+      window.history.pushState(null, '', window.location.href)
+    }
+    window.addEventListener('popstate', handle)
+    return () => window.removeEventListener('popstate', handle)
+  }, [phase, partnerLeft])
 
   // Detect partner leaving mid-game
   useEffect(() => {
@@ -684,7 +694,7 @@ export default function TowerGame() {
 
       {/* ── Leave confirmation modal ── */}
       <AnimatePresence>
-        {blocker.state === 'blocked' && (
+        {showLeaveModal && (
           <motion.div
             key="leave-modal"
             initial={{ opacity: 0 }}
@@ -712,7 +722,6 @@ export default function TowerGame() {
                 textAlign:    'center',
               }}
             >
-              <p style={{ fontSize: 36, marginBottom: 12 }}>⚠️</p>
               <h3 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-1)', marginBottom: 8 }}>
                 Leave the game?
               </h3>
@@ -722,14 +731,14 @@ export default function TowerGame() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <button
                   className="btn-primary"
-                  onClick={() => blocker.reset()}
+                  onClick={() => setShowLeaveModal(false)}
                   style={{ background: 'var(--violet)', color: '#fff' }}
                 >
                   Stay in game
                 </button>
                 <button
                   className="btn-ghost"
-                  onClick={() => blocker.proceed()}
+                  onClick={() => navigate('/')}
                 >
                   Leave anyway
                 </button>
