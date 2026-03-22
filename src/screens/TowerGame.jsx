@@ -95,7 +95,6 @@ export default function TowerGame() {
   useEffect(() => {
     setLocalAnswer(null)
     setSubmitted(false)
-    setDropParams(null)
     setShowContinueBtn(false)
   }, [questionIndex])
 
