@@ -28,6 +28,8 @@ export default function TowerGame() {
   // ── Local UI state ──
   const [localAnswer, setLocalAnswer] = useState(null)
   const [submitted, setSubmitted] = useState(false)
+  const [dropParams, setDropParams] = useState(null)
+  const [showContinueBtn, setShowContinueBtn] = useState(false)
 
   const me = myPlayer()
   const partner = players.find(p => p.id !== me?.id)
@@ -42,11 +44,27 @@ export default function TowerGame() {
     setQuestionIds(shuffled, true)
   }, [isHost, questionIds, setQuestionIds])
 
-  // Reset local answer when question changes
+  // Reset local state when question changes
   useEffect(() => {
     setLocalAnswer(null)
     setSubmitted(false)
+    setDropParams(null)
+    setShowContinueBtn(false)
   }, [questionIndex])
+
+  // After PhysicsTower mounts (phase just became 'dropping'), call dropBlock
+  // Uses rAF so the ref is guaranteed to be attached before we call it
+  useEffect(() => {
+    if (phase !== 'dropping' || !dropParams) return
+    const frame = requestAnimationFrame(() => {
+      towerRef.current?.dropBlock(dropParams.offsetX, dropParams.alignmentScore)
+    })
+    const timer = setTimeout(() => setShowContinueBtn(true), 3000)
+    return () => {
+      cancelAnimationFrame(frame)
+      clearTimeout(timer)
+    }
+  }, [phase, dropParams])
 
   // Guard: if Playroom isn't initialized go back
   useEffect(() => {
@@ -69,21 +87,12 @@ export default function TowerGame() {
     setPhase('review', true)
   }, [isHost, phase, bothAnswered, setPhase])
 
-  // Host: handle tower result
+  // Tower fall syncs phase to 'failed' for both players
   useEffect(() => {
-    if (!isHost || phase !== 'dropping') return
-    const timer = setTimeout(() => {
-      if (towerResult !== 'fallen') setTowerResult('standing', true)
-    }, 3200)
-    return () => clearTimeout(timer)
-  }, [isHost, phase, towerResult, setTowerResult])
-
-  // Both: react to towerResult
-  useEffect(() => {
-    if (phase !== 'dropping' || !towerResult) return
-    if (towerResult === 'fallen') setPhase('failed', true)
-    else setPhase('checking', true)
-  }, [phase, towerResult, setPhase])
+    if (towerResult === 'fallen' && phase === 'dropping') {
+      setPhase('failed', true)
+    }
+  }, [towerResult, phase, setPhase])
 
   // ── Handlers ──
 
@@ -98,13 +107,20 @@ export default function TowerGame() {
     if (!myAnswer || !partnerAnswer) return
     const offsetX = (myAnswer.x - partnerAnswer.x) / 2
     const alignmentScore = Math.max(0, 1 - getDistance() / 2)
-    towerRef.current?.dropBlock(offsetX, alignmentScore)
+    // Store params — dropBlock is called via useEffect AFTER PhysicsTower mounts
+    setDropParams({ offsetX, alignmentScore })
     setTowerResult(null, true)
+    setShowContinueBtn(false)
     setPhase('dropping', true)
   }
 
   const handleTowerFall = () => {
-    if (isHost) setTowerResult('fallen', true)
+    // Any player detecting a fall syncs it globally
+    setTowerResult('fallen', true)
+  }
+
+  const handleConfirmDrop = () => {
+    setPhase('checking', true)
   }
 
   const handleNextQuestion = () => {
@@ -311,23 +327,40 @@ export default function TowerGame() {
           </motion.div>
         )}
 
-        {/* ── Dropping ── */}
+        {/* ── Dropping ── tower is visible behind, controls at bottom ── */}
         {phase === 'dropping' && (
           <motion.div
             key="dropping"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 flex flex-col items-center justify-center bg-black/60"
+            className="absolute inset-x-0 top-0 flex flex-col items-center pt-10 pointer-events-none"
           >
             <motion.p
               animate={{ opacity: [0.4, 1, 0.4] }}
               transition={{ duration: 1.5, repeat: Infinity }}
-              className="text-white text-xl font-medium mb-1"
+              className="text-white text-sm font-medium bg-black/50 px-4 py-2 rounded-full"
             >
               Watch the tower...
             </motion.p>
-            <p className="text-gray-600 text-sm">Block is falling</p>
+          </motion.div>
+        )}
+
+        {/* ── Dropping: Continue button (after block settles) ── */}
+        {phase === 'dropping' && showContinueBtn && (
+          <motion.div
+            key="dropping-continue"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="absolute inset-x-0 bottom-0 flex flex-col items-center px-6 pb-10"
+          >
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={handleConfirmDrop}
+              className="w-full max-w-sm bg-white text-black rounded-2xl px-6 py-4 font-medium text-base"
+            >
+              Continue
+            </motion.button>
           </motion.div>
         )}
 
