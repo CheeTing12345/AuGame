@@ -40,6 +40,7 @@ export default function TowerGame() {
   const [submitted,      setSubmitted]      = useState(false)
   const [dropParams,     setDropParams]     = useState(null)
   const [showContinueBtn, setShowContinueBtn] = useState(false)
+  const [partnerLeft,    setPartnerLeft]    = useState(false)
 
   const me      = myPlayer()
   const partner = players.find(p => p.id !== me?.id)
@@ -48,6 +49,20 @@ export default function TowerGame() {
   useEffect(() => {
     try { myPlayer() } catch { navigate('/create-join') }
   }, [navigate])
+
+  // Prevent accidental refresh / tab close
+  useEffect(() => {
+    const handle = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handle)
+    return () => window.removeEventListener('beforeunload', handle)
+  }, [])
+
+  // Detect partner leaving mid-game
+  useEffect(() => {
+    if (players.length < 2 && !['splash', 'complete'].includes(phase)) {
+      setPartnerLeft(true)
+    }
+  }, [players.length, phase])
 
   // Host picks questions once
   useEffect(() => {
@@ -277,8 +292,7 @@ export default function TowerGame() {
               borderTop:     '1px solid var(--border)',
               borderRadius:  '24px 24px 0 0',
               paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
-              maxHeight:     '90dvh',
-              maxHeight:     '90vh',
+              maxHeight:     '90svh',
               overflowY:     'auto',
             }}
           >
@@ -653,6 +667,47 @@ export default function TowerGame() {
                 </motion.div>
               )}
             </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Partner left overlay ── */}
+      <AnimatePresence>
+        {partnerLeft && (
+          <motion.div
+            key="partner-left"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            style={{
+              position:       'absolute', inset: 0, zIndex: 30,
+              display:        'flex', flexDirection: 'column',
+              alignItems:     'center', justifyContent: 'center',
+              background:     'rgba(13,13,15,0.92)',
+              backdropFilter: 'blur(14px)',
+              padding:        '32px 24px',
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.88, opacity: 0, y: 12 }}
+              animate={{ scale: 1,    opacity: 1, y: 0  }}
+              transition={{ type: 'spring', stiffness: 280, damping: 22 }}
+              style={{ textAlign: 'center', width: '100%' }}
+            >
+              <div style={{ fontSize: 48, marginBottom: 16 }}>👋</div>
+              <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)', marginBottom: 8 }}>
+                Your partner left
+              </h2>
+              <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 36 }}>
+                They disconnected or refreshed the page.
+              </p>
+              <button
+                className="btn-primary"
+                onClick={() => navigate('/')}
+                style={{ background: 'var(--violet)', color: '#fff' }}
+              >
+                Quit to home
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
