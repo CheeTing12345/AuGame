@@ -24,18 +24,29 @@
 }
 
 /* ── Base ── */
-html, body, #root {
+html {
   height: 100%;
-  overflow: hidden;
 }
 
 body {
+  height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: var(--bg);
+  background: #000; /* outer gutter on desktop */
   color: var(--text-1);
-  font-size: 16px; /* prevents iOS zoom on input focus */
+  font-size: 16px;  /* prevents iOS zoom on inputs */
+  display: flex;
+  justify-content: center;
+}
+
+#root {
+  width: 100%;
+  max-width: 430px;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
 }
 
 .font-serif {
@@ -60,7 +71,7 @@ body {
 }
 
 .blob-a {
-  position: fixed;
+  position: absolute;
   top: -120px;
   left: -80px;
   width: 340px;
@@ -74,7 +85,7 @@ body {
   z-index: 0;
 }
 .blob-b {
-  position: fixed;
+  position: absolute;
   bottom: -100px;
   right: -80px;
   width: 300px;
@@ -88,7 +99,7 @@ body {
   z-index: 0;
 }
 .blob-c {
-  position: fixed;
+  position: absolute;
   top: 45%;
   left: 30%;
   width: 250px;
@@ -106,14 +117,14 @@ body {
 .screen {
   position: relative;
   z-index: 1;
-  min-height: 100dvh;
-  min-height: 100vh;
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 24px 20px;
   padding-bottom: max(24px, env(safe-area-inset-bottom, 24px));
+  overflow-y: auto;
 }
 
 /* ── Cards / surfaces ── */

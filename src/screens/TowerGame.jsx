@@ -11,61 +11,37 @@ import PhysicsTower from '../components/PhysicsTower'
 import SliderInput from '../components/SliderInput'
 import { allQuestions } from '../data/questions'
 
-const QUESTION_COUNT = 15
-const MAX_OFFSET_RATIO = 0.38  // max fraction of width offset from center
+const QUESTION_COUNT  = 15
+const MAX_OFFSET_RATIO = 0.35
 
-// Pick a random set balanced across categories
 function pickQuestions(n) {
-  const categories = {}
-  allQuestions.forEach(q => {
-    if (!categories[q.category]) categories[q.category] = []
-    categories[q.category].push(q)
-  })
-  const categoryKeys = Object.keys(categories)
-  const perCat = Math.ceil(n / categoryKeys.length)
-
-  let picked = []
-  categoryKeys.forEach(cat => {
-    const shuffled = [...categories[cat]].sort(() => Math.random() - 0.5)
-    picked.push(...shuffled.slice(0, perCat))
-  })
-  return picked.sort(() => Math.random() - 0.5).slice(0, n).map(q => q.id)
-}
-
-const CATEGORY_COLORS = {
-  Work:     'var(--cyan)',
-  Love:     '#f472b6',
-  Family:   'var(--amber)',
-  Friends:  'var(--green)',
-  Partners: 'var(--violet)',
-  Random:   'var(--text-2)',
+  const shuffled = [...allQuestions].sort(() => Math.random() - 0.5)
+  return shuffled.slice(0, n).map(q => q.id)
 }
 
 export default function TowerGame() {
-  const navigate = useNavigate()
-  const towerRef = useRef(null)
-  const isHost = useIsHost()
-  const players = usePlayersList(true)
+  const navigate   = useNavigate()
+  const towerRef   = useRef(null)
+  const isHost     = useIsHost()
+  const players    = usePlayersList(true)
 
   // ── Shared state ──
-  const [phase, setPhase] = useMultiplayerState('phase', 'splash')
-  const [questionIndex, setQuestionIndex] = useMultiplayerState('questionIndex', 0)
-  const [questionIds, setQuestionIds] = useMultiplayerState('questionIds', null)
-  const [towerResult, setTowerResult] = useMultiplayerState('towerResult', null)
-  const [totalStacked, setTotalStacked] = useMultiplayerState('totalStacked', 0)
-  const [bestRun, setBestRun] = useMultiplayerState('bestRun', 0)
+  const [phase,            setPhase]            = useMultiplayerState('phase',            'splash')
+  const [questionIndex,    setQuestionIndex]    = useMultiplayerState('questionIndex',    0)
+  const [questionIds,      setQuestionIds]      = useMultiplayerState('questionIds',      null)
+  const [towerResult,      setTowerResult]      = useMultiplayerState('towerResult',      null)
+  const [bestRun,          setBestRun]          = useMultiplayerState('bestRun',          0)
   const [currentRunBlocks, setCurrentRunBlocks] = useMultiplayerState('currentRunBlocks', 0)
-  const [totalCollapsed, setTotalCollapsed] = useMultiplayerState('totalCollapsed', 0)
-  const [alignmentSum, setAlignmentSum] = useMultiplayerState('alignmentSum', 0)
+  const [totalCollapsed,   setTotalCollapsed]   = useMultiplayerState('totalCollapsed',   0)
+  const [alignmentSum,     setAlignmentSum]     = useMultiplayerState('alignmentSum',     0)
 
   // ── Local state ──
-  const [localAnswer, setLocalAnswer] = useState(null)
-  const [submitted, setSubmitted] = useState(false)
-  const [dropParams, setDropParams] = useState(null)
-  const [showPhysicsBtn, setShowPhysicsBtn] = useState(false)
-  const [splashText, setSplashText] = useState(null)  // { text, sub }
+  const [localAnswer,    setLocalAnswer]    = useState(null)
+  const [submitted,      setSubmitted]      = useState(false)
+  const [dropParams,     setDropParams]     = useState(null)
+  const [showContinueBtn, setShowContinueBtn] = useState(false)
 
-  const me = myPlayer()
+  const me      = myPlayer()
   const partner = players.find(p => p.id !== me?.id)
 
   // Guard
@@ -79,61 +55,55 @@ export default function TowerGame() {
     setQuestionIds(pickQuestions(QUESTION_COUNT), true)
   }, [isHost, questionIds, setQuestionIds])
 
-  // Splash → question sequence (host drives)
+  // Splash → first question (host drives, 3s delay)
   useEffect(() => {
     if (phase !== 'splash' || !isHost) return
-    // Show "Let's Get Building" for 2s, then first question after 3 more seconds
-    const t1 = setTimeout(() => setPhase('question', true), 3000)
-    return () => clearTimeout(t1)
+    const t = setTimeout(() => setPhase('answer', true), 3000)
+    return () => clearTimeout(t)
   }, [phase, isHost, setPhase])
 
-  // Reset local state on question change
+  // Reset local answer state on each new question
   useEffect(() => {
     setLocalAnswer(null)
     setSubmitted(false)
     setDropParams(null)
-    setShowPhysicsBtn(false)
+    setShowContinueBtn(false)
   }, [questionIndex])
 
-  // Host: both answered → move to review
+  // Host: both answered → review
   useEffect(() => {
     if (!isHost || phase !== 'answer') return
     const myA = me?.getState(`answer_${questionIndex}`)
-    const pA = partner?.getState(`answer_${questionIndex}`)
+    const pA  = partner?.getState(`answer_${questionIndex}`)
     if (myA && pA) setPhase('review', true)
   }, [players, isHost, phase, questionIndex, me, partner, setPhase])
 
-  // Drop block after phase becomes 'dropping'
+  // Trigger drop after entering 'dropping'
   useEffect(() => {
     if (phase !== 'dropping' || !dropParams) return
     const frame = requestAnimationFrame(() => {
       towerRef.current?.dropBlock(dropParams.offsetX, dropParams.alignmentScore)
     })
-    const t = setTimeout(() => setShowPhysicsBtn(true), 3500)
+    const t = setTimeout(() => setShowContinueBtn(true), 3800)
     return () => { cancelAnimationFrame(frame); clearTimeout(t) }
   }, [phase, dropParams])
 
-  // Tower result sync
+  // Sync tower fall → failed phase
   useEffect(() => {
     if (towerResult !== 'fallen' || phase !== 'dropping') return
     setPhase('failed', true)
   }, [towerResult, phase, setPhase])
 
+  // Derived
   const currentQuestion = questionIds
     ? allQuestions.find(q => q.id === questionIds[questionIndex])
     : null
-
-  const myAnswer = me?.getState(`answer_${questionIndex}`)
+  const myAnswer      = me?.getState(`answer_${questionIndex}`)
   const partnerAnswer = partner?.getState(`answer_${questionIndex}`)
 
-  const getDeviation = () => {
-    if (!myAnswer || !partnerAnswer) return 0
-    return Math.abs(myAnswer - partnerAnswer) / 4  // 0.0–1.0
-  }
-
+  const getDeviation      = () => (!myAnswer || !partnerAnswer) ? 0 : Math.abs(myAnswer - partnerAnswer) / 4
   const getAlignmentScore = () => Math.round((1 - getDeviation()) * 100)
-
-  const getAlignmentMessage = () => {
+  const getAlignmentMsg   = () => {
     const s = getAlignmentScore()
     if (s >= 90) return 'Perfect match 🎯'
     if (s >= 70) return 'Really close 💚'
@@ -143,8 +113,7 @@ export default function TowerGame() {
   }
 
   // ── Handlers ──
-
-  const handleSubmitAnswer = () => {
+  const handleSubmit = () => {
     if (!localAnswer) return
     me.setState(`answer_${questionIndex}`, localAnswer)
     setSubmitted(true)
@@ -152,19 +121,14 @@ export default function TowerGame() {
 
   const handleDropBlock = () => {
     if (!myAnswer || !partnerAnswer) return
-    const deviation = getDeviation()
+    const deviation      = getDeviation()
     const alignmentScore = 1 - deviation
-    // Alternate left/right each turn
-    const direction = questionIndex % 2 === 0 ? 1 : -1
-    const offsetX = direction * deviation * MAX_OFFSET_RATIO
-
-    if (isHost) {
-      setAlignmentSum(alignmentSum + getAlignmentScore(), true)
-    }
-
+    const direction      = questionIndex % 2 === 0 ? 1 : -1
+    const offsetX        = direction * deviation * MAX_OFFSET_RATIO
+    if (isHost) setAlignmentSum(alignmentSum + getAlignmentScore(), true)
     setDropParams({ offsetX, alignmentScore })
     setTowerResult(null, true)
-    setShowPhysicsBtn(false)
+    setShowContinueBtn(false)
     setPhase('dropping', true)
   }
 
@@ -173,12 +137,10 @@ export default function TowerGame() {
   }, [setTowerResult])
 
   const handleAfterDrop = () => {
-    // Update best run tracking
     if (isHost) {
-      const newCurrent = currentRunBlocks + 1
-      setCurrentRunBlocks(newCurrent, true)
-      setTotalStacked(totalStacked + 1, true)
-      if (newCurrent > bestRun) setBestRun(newCurrent, true)
+      const next = currentRunBlocks + 1
+      setCurrentRunBlocks(next, true)
+      if (next > bestRun) setBestRun(next, true)
     }
     setPhase('checking', true)
   }
@@ -189,12 +151,11 @@ export default function TowerGame() {
       setPhase('complete', true)
     } else {
       setQuestionIndex(next, true)
-      setPhase('question', true)
+      setPhase('answer', true)
     }
   }
 
   const handleResetAfterFall = () => {
-    // Reset tower, update stats, continue to next question
     towerRef.current?.resetBlocks()
     if (isHost) {
       setTotalCollapsed(totalCollapsed + 1, true)
@@ -205,7 +166,7 @@ export default function TowerGame() {
       setPhase('complete', true)
     } else {
       setQuestionIndex(next, true)
-      setPhase('question', true)
+      setPhase('answer', true)
     }
   }
 
@@ -213,59 +174,51 @@ export default function TowerGame() {
     ? Math.round(alignmentSum / (questionIndex + 1))
     : getAlignmentScore()
 
-  // Loading screen
-  if (!currentQuestion && phase !== 'splash' && phase !== 'complete') {
+  // Loading
+  if (!currentQuestion && !['splash', 'complete'].includes(phase)) {
     return (
-      <div style={{
-        position: 'fixed', inset: 0,
-        background: 'var(--bg)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <p className="pulse" style={{ color: 'var(--text-2)', fontSize: 14 }}>
-          Loading game...
-        </p>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p className="pulse" style={{ color: 'var(--text-2)', fontSize: 14 }}>Loading...</p>
       </div>
     )
   }
 
-  const isOverlayVisible = phase !== 'dropping'
   const overlaySheetVisible = !['splash', 'dropping'].includes(phase)
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg)', overflow: 'hidden' }}>
+    // Fills the constrained #root completely
+    <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
 
-      {/* ── Tower (always in background) ── */}
-      <div className="tower-bg">
-        <PhysicsTower
-          ref={towerRef}
-          onTowerFall={handleTowerFall}
-          isActive={phase === 'dropping'}
-        />
-      </div>
+      {/* ── Tower background (always mounted) ── */}
+      <PhysicsTower
+        ref={towerRef}
+        onTowerFall={handleTowerFall}
+        isActive={phase === 'dropping'}
+      />
 
-      {/* ── Splash screen ── */}
+      {/* ── Splash ── */}
       <AnimatePresence>
         {phase === 'splash' && (
           <motion.div
             key="splash"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.8 } }}
+            exit={{ opacity: 0, transition: { duration: 0.7 } }}
             style={{
-              position: 'fixed', inset: 0, zIndex: 20,
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(13,13,15,0.92)',
-              backdropFilter: 'blur(12px)',
+              position:       'absolute', inset: 0, zIndex: 20,
+              display:        'flex', flexDirection: 'column',
+              alignItems:     'center', justifyContent: 'center',
+              background:     'rgba(13,13,15,0.94)',
+              backdropFilter: 'blur(14px)',
             }}
           >
             <motion.div
-              initial={{ scale: 0.85, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.3, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+              initial={{ scale: 0.88, opacity: 0 }}
+              animate={{ scale: 1,    opacity: 1 }}
+              transition={{ delay: 0.3, duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
               style={{ textAlign: 'center' }}
             >
-              <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 12, letterSpacing: '0.04em' }}>
+              <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 10, letterSpacing: '0.04em' }}>
                 Get ready
               </p>
               <h1 className="font-serif" style={{ fontSize: 44, color: 'var(--text-1)', lineHeight: 1.15 }}>
@@ -277,10 +230,10 @@ export default function TowerGame() {
                 animate={{ scaleX: 1 }}
                 transition={{ delay: 0.8, duration: 2.0, ease: 'linear' }}
                 style={{
-                  height: 2,
-                  background: 'linear-gradient(90deg, var(--violet), var(--cyan))',
-                  borderRadius: 9999,
-                  marginTop: 28,
+                  height:          2,
+                  background:      'linear-gradient(90deg, var(--violet), var(--cyan))',
+                  borderRadius:    9999,
+                  marginTop:       28,
                   transformOrigin: 'left',
                 }}
               />
@@ -289,7 +242,7 @@ export default function TowerGame() {
         )}
       </AnimatePresence>
 
-      {/* ── Dim overlay behind sheet (blurs tower) ── */}
+      {/* ── Dim + blur behind sheet ── */}
       <AnimatePresence>
         {overlaySheetVisible && (
           <motion.div
@@ -297,17 +250,17 @@ export default function TowerGame() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.25 }}
             style={{
-              position: 'fixed', inset: 0, zIndex: 9,
-              background: 'rgba(0,0,0,0.55)',
+              position:       'absolute', inset: 0, zIndex: 9,
+              background:     'rgba(0,0,0,0.52)',
               backdropFilter: 'blur(6px)',
             }}
           />
         )}
       </AnimatePresence>
 
-      {/* ── Bottom sheet overlay (questions, results) ── */}
+      {/* ── Bottom sheet ── */}
       <AnimatePresence>
         {overlaySheetVisible && (
           <motion.div
@@ -317,18 +270,19 @@ export default function TowerGame() {
             exit={{ y: '100%' }}
             transition={{ type: 'spring', stiffness: 300, damping: 32 }}
             style={{
-              position: 'fixed',
+              position:      'absolute',
               left: 0, right: 0, bottom: 0,
-              zIndex: 10,
-              background: 'var(--surface)',
-              borderTop: '1px solid var(--border)',
-              borderRadius: '24px 24px 0 0',
-              paddingBottom: `max(28px, env(safe-area-inset-bottom, 28px))`,
-              maxHeight: '92dvh',
-              overflowY: 'auto',
+              zIndex:        10,
+              background:    'var(--surface)',
+              borderTop:     '1px solid var(--border)',
+              borderRadius:  '24px 24px 0 0',
+              paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
+              maxHeight:     '90dvh',
+              maxHeight:     '90vh',
+              overflowY:     'auto',
             }}
           >
-            {/* Handle bar */}
+            {/* Handle */}
             <div style={{ paddingTop: 12, paddingBottom: 4, display: 'flex', justifyContent: 'center' }}>
               <div style={{ width: 40, height: 4, borderRadius: 9999, background: 'var(--border)' }} />
             </div>
@@ -336,89 +290,47 @@ export default function TowerGame() {
             <div style={{ padding: '0 20px' }}>
               <AnimatePresence mode="wait">
 
-                {/* ── Question card ── */}
-                {phase === 'question' && currentQuestion && (
+                {/* ══ Answer (question + slider combined) ══ */}
+                {phase === 'answer' && currentQuestion && (
                   <motion.div
-                    key={`q-${questionIndex}`}
-                    initial={{ opacity: 0, x: 20 }}
+                    key={`answer-${questionIndex}`}
+                    initial={{ opacity: 0, x: 18 }}
                     animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    exit={{ opacity: 0, x: -18 }}
+                    transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
                   >
-                    {/* Progress */}
-                    <div className="progress-bar" style={{ marginBottom: 16, marginTop: 8 }}>
+                    {/* Progress bar */}
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 20, marginTop: 4 }}>
                       {Array.from({ length: QUESTION_COUNT }).map((_, i) => (
-                        <div
-                          key={i}
-                          className={`progress-segment${i < questionIndex ? ' done' : i === questionIndex ? ' current' : ''}`}
-                        />
+                        <div key={i} style={{
+                          height:     3,
+                          flex:       1,
+                          borderRadius: 9999,
+                          background: i < questionIndex
+                            ? 'var(--violet)'
+                            : i === questionIndex
+                              ? 'var(--cyan)'
+                              : 'var(--border)',
+                          transition: 'background 0.4s',
+                        }} />
                       ))}
                     </div>
 
-                    {/* Category badge */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                      <span className="category-badge" style={{
-                        borderColor: CATEGORY_COLORS[currentQuestion.category],
-                        color: CATEGORY_COLORS[currentQuestion.category],
-                      }}>
-                        {currentQuestion.category}
-                      </span>
-                      <span style={{ color: 'var(--text-3)', fontSize: 12 }}>
-                        {questionIndex + 1} / {QUESTION_COUNT}
-                      </span>
-                    </div>
-
-                    {/* Question */}
+                    {/* Question number + prompt */}
+                    <p style={{ color: 'var(--text-3)', fontSize: 12, marginBottom: 6 }}>
+                      {questionIndex + 1} / {QUESTION_COUNT}
+                    </p>
                     <h2 style={{
-                      fontSize: 22,
-                      fontWeight: 700,
-                      color: 'var(--text-1)',
-                      lineHeight: 1.35,
+                      fontSize:     20,
+                      fontWeight:   700,
+                      color:        'var(--text-1)',
+                      lineHeight:   1.38,
                       marginBottom: 28,
                     }}>
                       {currentQuestion.prompt}
                     </h2>
 
-                    <motion.button
-                      className="btn-primary"
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => setPhase('answer', true)}
-                      style={{ background: 'var(--violet)', color: '#fff', marginBottom: 8 }}
-                    >
-                      Place my answer →
-                    </motion.button>
-                  </motion.div>
-                )}
-
-                {/* ── Answer ── */}
-                {phase === 'answer' && currentQuestion && (
-                  <motion.div
-                    key={`a-${questionIndex}`}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <div style={{ marginTop: 8, marginBottom: 18 }}>
-                      <span className="category-badge" style={{
-                        borderColor: CATEGORY_COLORS[currentQuestion.category],
-                        color: CATEGORY_COLORS[currentQuestion.category],
-                        marginBottom: 10,
-                        display: 'inline-flex',
-                      }}>
-                        {currentQuestion.category}
-                      </span>
-                      <h3 style={{
-                        fontSize: 18,
-                        fontWeight: 700,
-                        color: 'var(--text-1)',
-                        lineHeight: 1.4,
-                        marginTop: 8,
-                      }}>
-                        {currentQuestion.prompt}
-                      </h3>
-                    </div>
-
+                    {/* Slider */}
                     <div style={{ marginBottom: 28 }}>
                       <SliderInput
                         leftLabel={currentQuestion.leftLabel}
@@ -429,29 +341,23 @@ export default function TowerGame() {
                       />
                     </div>
 
+                    {/* Action */}
                     {submitted ? (
-                      <motion.div style={{ textAlign: 'center', paddingBottom: 4 }}>
-                        <div style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          color: 'var(--green)',
-                          fontSize: 14,
-                          marginBottom: 8,
-                        }}>
-                          <span>✓ Submitted</span>
-                        </div>
+                      <div style={{ textAlign: 'center', paddingBottom: 4 }}>
+                        <p style={{ color: 'var(--green)', fontSize: 14, marginBottom: 6 }}>✓ Submitted</p>
                         <p className="pulse" style={{ color: 'var(--text-2)', fontSize: 13 }}>
                           Waiting for {partner?.getState('name') || 'partner'}...
                         </p>
-                      </motion.div>
+                      </div>
                     ) : (
                       <motion.button
                         className="btn-primary"
                         whileTap={{ scale: 0.98 }}
-                        onClick={handleSubmitAnswer}
+                        onClick={handleSubmit}
                         disabled={!localAnswer}
-                        style={localAnswer ? { background: 'var(--violet)', color: '#fff' } : {}}
+                        style={localAnswer
+                          ? { background: 'var(--violet)', color: '#fff' }
+                          : {}}
                       >
                         {localAnswer ? 'Submit answer' : 'Pick an option above'}
                       </motion.button>
@@ -459,90 +365,61 @@ export default function TowerGame() {
                   </motion.div>
                 )}
 
-                {/* ── Review ── */}
+                {/* ══ Review ══ */}
                 {phase === 'review' && currentQuestion && myAnswer && partnerAnswer && (
                   <motion.div
-                    key={`r-${questionIndex}`}
+                    key={`review-${questionIndex}`}
                     initial={{ opacity: 0, scale: 0.97 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.35 }}
+                    transition={{ duration: 0.3 }}
                   >
-                    <div style={{ marginTop: 8, marginBottom: 20 }}>
-                      <h3 style={{ fontSize: 15, color: 'var(--text-2)', marginBottom: 4 }}>
-                        {currentQuestion.prompt}
-                      </h3>
-                    </div>
+                    <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 16, marginTop: 4 }}>
+                      {currentQuestion.prompt}
+                    </p>
 
-                    {/* Alignment score */}
+                    {/* Score */}
                     <motion.div
                       initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
+                      animate={{ scale: 1,   opacity: 1 }}
                       transition={{ type: 'spring', stiffness: 280, damping: 20 }}
-                      style={{ textAlign: 'center', marginBottom: 24 }}
+                      style={{ textAlign: 'center', marginBottom: 20 }}
                     >
-                      <p style={{
-                        fontSize: 64,
-                        fontWeight: 800,
-                        color: 'var(--text-1)',
-                        lineHeight: 1,
-                        marginBottom: 6,
-                      }}>
+                      <p style={{ fontSize: 60, fontWeight: 800, color: 'var(--text-1)', lineHeight: 1, marginBottom: 4 }}>
                         {getAlignmentScore()}%
                       </p>
-                      <p style={{ color: 'var(--text-2)', fontSize: 15 }}>
-                        {getAlignmentMessage()}
-                      </p>
+                      <p style={{ color: 'var(--text-2)', fontSize: 15 }}>{getAlignmentMsg()}</p>
                     </motion.div>
 
                     {/* Answer comparison */}
                     <div className="card" style={{ marginBottom: 20 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
-                        <div style={{ textAlign: 'left' }}>
-                          <p style={{ color: 'var(--text-3)', fontSize: 11, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                            You
-                          </p>
-                          <p style={{ color: 'var(--violet)', fontWeight: 700, fontSize: 22 }}>
-                            {myAnswer}
-                          </p>
+                        <div>
+                          <p style={{ color: 'var(--text-3)', fontSize: 11, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>You</p>
+                          <p style={{ color: 'var(--violet)', fontWeight: 800, fontSize: 24 }}>{myAnswer}</p>
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <p style={{ color: 'var(--text-3)', fontSize: 11, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                             {partner?.getState('name') || 'Partner'}
                           </p>
-                          <p style={{ color: 'var(--cyan)', fontWeight: 700, fontSize: 22 }}>
-                            {partnerAnswer}
-                          </p>
+                          <p style={{ color: 'var(--cyan)', fontWeight: 800, fontSize: 24 }}>{partnerAnswer}</p>
                         </div>
                       </div>
-
-                      {/* Visual bar */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-3)', marginBottom: 6 }}>
+                      {/* Position bar */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-3)', marginBottom: 8 }}>
                         <span>{currentQuestion.leftLabel}</span>
                         <span>{currentQuestion.rightLabel}</span>
                       </div>
                       <div style={{ height: 6, background: 'var(--border)', borderRadius: 9999, position: 'relative' }}>
-                        {/* My dot */}
                         <div style={{
-                          position: 'absolute',
-                          left: `${((myAnswer - 1) / 4) * 100}%`,
-                          top: '50%',
-                          width: 14, height: 14,
-                          borderRadius: '50%',
-                          background: 'var(--violet)',
-                          transform: 'translate(-50%, -50%)',
-                          border: '2px solid var(--surface)',
+                          position: 'absolute', left: `${((myAnswer - 1) / 4) * 100}%`, top: '50%',
+                          width: 14, height: 14, borderRadius: '50%', background: 'var(--violet)',
+                          transform: 'translate(-50%, -50%)', border: '2px solid var(--surface)',
                         }} />
-                        {/* Partner dot */}
                         <div style={{
-                          position: 'absolute',
-                          left: `${((partnerAnswer - 1) / 4) * 100}%`,
-                          top: '50%',
-                          width: 14, height: 14,
-                          borderRadius: '50%',
-                          background: 'var(--cyan)',
-                          transform: 'translate(-50%, -50%)',
-                          border: '2px solid var(--surface)',
+                          position: 'absolute', left: `${((partnerAnswer - 1) / 4) * 100}%`, top: '50%',
+                          width: 14, height: 14, borderRadius: '50%', background: 'var(--cyan)',
+                          transform: 'translate(-50%, -50%)', border: '2px solid var(--surface)',
                         }} />
                       </div>
                     </div>
@@ -554,105 +431,96 @@ export default function TowerGame() {
                       style={{ background: 'var(--violet)', color: '#fff' }}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.4 }}
+                      transition={{ delay: 0.35 }}
                     >
                       Drop the block 🧱
                     </motion.button>
                   </motion.div>
                 )}
 
-                {/* ── Checking ── */}
+                {/* ══ Checking ══ */}
                 {phase === 'checking' && (
                   <motion.div
                     key="checking"
-                    initial={{ opacity: 0, y: 16 }}
+                    initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.35 }}
-                    style={{ paddingTop: 8, paddingBottom: 4 }}
+                    style={{ paddingTop: 8, paddingBottom: 4, textAlign: 'center' }}
                   >
-                    <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ type: 'spring', stiffness: 300, damping: 18 }}
-                        style={{ fontSize: 52, marginBottom: 12 }}
-                      >
-                        🏗️
-                      </motion.div>
-                      <h3 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-1)', marginBottom: 6 }}>
-                        Tower stands!
-                      </h3>
-                      <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
-                        {questionIndex + 1} block{questionIndex !== 0 ? 's' : ''} stacked — keep going
-                      </p>
-                    </div>
-
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+                      style={{ fontSize: 50, marginBottom: 12 }}
+                    >
+                      🏗️
+                    </motion.div>
+                    <h3 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-1)', marginBottom: 6 }}>
+                      Tower stands!
+                    </h3>
+                    <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 24 }}>
+                      {questionIndex + 1} block{questionIndex !== 0 ? 's' : ''} stacked
+                    </p>
                     <motion.button
                       className="btn-primary"
                       whileTap={{ scale: 0.98 }}
                       onClick={handleNextQuestion}
-                      style={{ background: 'var(--green)', color: '#000', marginBottom: 4 }}
+                      style={{ background: 'var(--green)', color: '#000' }}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.35 }}
+                      transition={{ delay: 0.3 }}
                     >
-                      {questionIndex + 1 >= QUESTION_COUNT ? 'See final tower →' : 'Next question →'}
+                      {questionIndex + 1 >= QUESTION_COUNT ? 'See final results →' : 'Next question →'}
                     </motion.button>
                   </motion.div>
                 )}
 
-                {/* ── Failed ── */}
+                {/* ══ Failed ══ */}
                 {phase === 'failed' && (
                   <motion.div
                     key="failed"
-                    initial={{ opacity: 0, y: 16 }}
+                    initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.35 }}
-                    style={{ paddingTop: 8, paddingBottom: 4 }}
+                    style={{ paddingTop: 8, paddingBottom: 4, textAlign: 'center' }}
                   >
-                    <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                      <motion.div
-                        initial={{ rotate: 0 }}
-                        animate={{ rotate: [0, -15, 15, -10, 10, 0] }}
-                        transition={{ delay: 0.2, duration: 0.6 }}
-                        style={{ fontSize: 52, marginBottom: 12 }}
-                      >
-                        💥
-                      </motion.div>
-                      <h3 style={{ fontSize: 26, fontWeight: 800, color: 'var(--danger)', marginBottom: 6 }}>
-                        Tower collapsed!
-                      </h3>
-                      <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 4 }}>
-                        Best run: {bestRun} block{bestRun !== 1 ? 's' : ''}
-                      </p>
-                      <p style={{ color: 'var(--text-3)', fontSize: 13 }}>
-                        Tower resets — game continues
-                      </p>
-                    </div>
-
+                    <motion.div
+                      initial={{ rotate: 0 }}
+                      animate={{ rotate: [0, -14, 14, -8, 8, 0] }}
+                      transition={{ delay: 0.2, duration: 0.55 }}
+                      style={{ fontSize: 50, marginBottom: 12 }}
+                    >
+                      💥
+                    </motion.div>
+                    <h3 style={{ fontSize: 26, fontWeight: 800, color: 'var(--danger)', marginBottom: 6 }}>
+                      Tower collapsed!
+                    </h3>
+                    <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 4 }}>
+                      Best run: <strong>{bestRun}</strong> block{bestRun !== 1 ? 's' : ''}
+                    </p>
+                    <p style={{ color: 'var(--text-3)', fontSize: 13, marginBottom: 24 }}>
+                      Tower resets — the game continues
+                    </p>
                     <motion.button
                       className="btn-primary"
                       whileTap={{ scale: 0.98 }}
                       onClick={handleResetAfterFall}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.4 }}
+                      transition={{ delay: 0.35 }}
                     >
                       {questionIndex + 1 >= QUESTION_COUNT ? 'See results →' : 'Keep going →'}
                     </motion.button>
                   </motion.div>
                 )}
 
-                {/* ── Complete ── */}
+                {/* ══ Complete ══ */}
                 {phase === 'complete' && (
                   <motion.div
                     key="complete"
-                    initial={{ opacity: 0, y: 16 }}
+                    initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.35 }}
                     style={{ paddingTop: 8, paddingBottom: 4 }}
                   >
                     <div style={{ textAlign: 'center', marginBottom: 24 }}>
@@ -660,31 +528,31 @@ export default function TowerGame() {
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
                         transition={{ type: 'spring', stiffness: 260, damping: 16 }}
-                        style={{ fontSize: 52, marginBottom: 12 }}
+                        style={{ fontSize: 50, marginBottom: 12 }}
                       >
                         🎉
                       </motion.div>
-                      <h3 className="font-serif" style={{ fontSize: 32, color: 'var(--text-1)', marginBottom: 6 }}>
-                        Game over!
+                      <h3 className="font-serif" style={{ fontSize: 30, color: 'var(--text-1)', marginBottom: 6 }}>
+                        Game complete!
                       </h3>
                       <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
-                        You answered all {QUESTION_COUNT} questions together
+                        {QUESTION_COUNT} questions answered together
                       </p>
                     </div>
 
                     {/* Stats */}
                     <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
                       {[
-                        { label: 'Best run', value: bestRun, unit: 'blocks', color: 'var(--green)' },
-                        { label: 'Avg. sync', value: `${avgAlignment}%`, color: 'var(--violet)' },
-                        { label: 'Collapses', value: totalCollapsed, color: 'var(--danger)' },
+                        { label: 'Best run',   value: bestRun,        unit: 'blocks', color: 'var(--green)'  },
+                        { label: 'Avg sync',   value: `${avgAlignment}%`,            color: 'var(--violet)' },
+                        { label: 'Collapses',  value: totalCollapsed,                color: 'var(--danger)'  },
                       ].map(stat => (
                         <motion.div
                           key={stat.label}
                           className="card"
-                          initial={{ opacity: 0, y: 12 }}
+                          initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
-                          style={{ flex: 1, textAlign: 'center', padding: '14px 8px' }}
+                          style={{ flex: 1, textAlign: 'center', padding: '14px 6px' }}
                         >
                           <p style={{ fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>
                             {stat.value}
@@ -692,26 +560,24 @@ export default function TowerGame() {
                           {stat.unit && (
                             <p style={{ color: 'var(--text-3)', fontSize: 10, marginTop: 2 }}>{stat.unit}</p>
                           )}
-                          <p style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          <p style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                             {stat.label}
                           </p>
                         </motion.div>
                       ))}
                     </div>
 
-                    {/* Share */}
                     <motion.button
                       className="btn-primary"
                       whileTap={{ scale: 0.98 }}
                       style={{ background: 'var(--violet)', color: '#fff', marginBottom: 10 }}
                       onClick={() => {
-                        const text = `🏗️ Common Ground\nBest run: ${bestRun} blocks | Avg sync: ${avgAlignment}% | Collapses: ${totalCollapsed}\nPlay at commonground.app`
+                        const text = `🏗️ Common Ground\nBest run: ${bestRun} blocks · Avg sync: ${avgAlignment}% · Collapses: ${totalCollapsed}`
                         navigator.share?.({ text }) ?? navigator.clipboard?.writeText(text)
                       }}
                     >
                       Share result
                     </motion.button>
-
                     <motion.button
                       className="btn-primary"
                       whileTap={{ scale: 0.98 }}
@@ -720,7 +586,6 @@ export default function TowerGame() {
                     >
                       Play again
                     </motion.button>
-
                     <button className="btn-ghost" onClick={() => navigate('/')}>
                       Back to home
                     </button>
@@ -733,7 +598,7 @@ export default function TowerGame() {
         )}
       </AnimatePresence>
 
-      {/* ── Dropping phase: top hint + continue button ── */}
+      {/* ── Dropping: hint + continue button ── */}
       <AnimatePresence>
         {phase === 'dropping' && (
           <motion.div
@@ -742,24 +607,22 @@ export default function TowerGame() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             style={{
-              position: 'fixed', inset: 0, zIndex: 5,
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center',
+              position:      'absolute', inset: 0, zIndex: 5,
+              display:       'flex', flexDirection: 'column', alignItems: 'center',
               pointerEvents: 'none',
             }}
           >
-            {/* Top hint */}
             <motion.div
-              initial={{ y: -20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
+              initial={{ y: -16, opacity: 0 }}
+              animate={{ y: 0,   opacity: 1 }}
               transition={{ delay: 0.3 }}
               style={{
-                marginTop: 60,
-                background: 'rgba(0,0,0,0.6)',
+                marginTop:      56,
+                background:     'rgba(0,0,0,0.6)',
                 backdropFilter: 'blur(8px)',
-                border: '1px solid var(--border)',
-                borderRadius: 9999,
-                padding: '8px 18px',
+                border:         '1px solid var(--border)',
+                borderRadius:   9999,
+                padding:        '8px 18px',
               }}
             >
               <p className="pulse" style={{ color: 'var(--text-1)', fontSize: 13, fontWeight: 500 }}>
@@ -767,15 +630,14 @@ export default function TowerGame() {
               </p>
             </motion.div>
 
-            {/* Continue button */}
             <AnimatePresence>
-              {showPhysicsBtn && (
+              {showContinueBtn && (
                 <motion.div
                   initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
+                  animate={{ y: 0,  opacity: 1 }}
                   style={{
-                    position: 'absolute', bottom: 0, left: 0, right: 0,
-                    padding: '0 20px',
+                    position:      'absolute', bottom: 0, left: 0, right: 0,
+                    padding:       '0 20px',
                     paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
                     pointerEvents: 'auto',
                   }}
@@ -794,6 +656,7 @@ export default function TowerGame() {
           </motion.div>
         )}
       </AnimatePresence>
+
     </div>
   )
 }
