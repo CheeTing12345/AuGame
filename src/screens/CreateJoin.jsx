@@ -40,9 +40,9 @@ export default function CreateJoin() {
         className="w-full max-w-sm"
       >
         {/* Title */}
-        <div className="text-center mb-10">
+        <div className="text-center mb-8">
           <p className="text-gray-500 text-sm tracking-wider mb-5">Two players</p>
-          <h1 className="font-serif text-5xl text-white leading-tight mb-8">
+          <h1 className="font-serif text-5xl text-white leading-tight mb-6">
             Alignment<br />
             <span className="italic">Tower</span>
           </h1>
@@ -78,8 +78,8 @@ export default function CreateJoin() {
         </div>
 
         {/* Join with code */}
-        <div className="space-y-3">
-          <p className="text-white font-semibold text-base">Join with code</p>
+        <div className="space-y-4">
+          <p className="text-white font-semibold text-base mb-1">Join with code</p>
           <input
             type="text"
             value={roomCode}
