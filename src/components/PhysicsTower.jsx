@@ -1,87 +1,166 @@
 import { useRef, useState, useImperativeHandle, forwardRef, useEffect } from 'react'
 
-const BLOCK_H     = 36
 const WIDTH_RATIO = 0.33
 
+// ── Canvas helpers ───────────────────────────────────────────────────────────
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + w - r, y)
+  ctx.arcTo(x + w, y,     x + w, y + r,     r)
+  ctx.lineTo(x + w, y + h - r)
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
+  ctx.lineTo(x + r, y + h)
+  ctx.arcTo(x,     y + h, x,      y + h - r, r)
+  ctx.lineTo(x, y + r)
+  ctx.arcTo(x,     y,     x + r,  y,         r)
+  ctx.closePath()
+}
+
+function drawBlock(ctx, body, color, bw, bh) {
+  const { x, y } = body.position
+  const r = 8
+  ctx.save()
+  ctx.translate(x, y)
+  ctx.rotate(body.angle)
+
+  // Glow
+  ctx.shadowColor = color
+  ctx.shadowBlur  = 18
+  roundRect(ctx, -bw/2, -bh/2, bw, bh, r)
+
+  // Body gradient
+  const grad = ctx.createLinearGradient(-bw/2, -bh/2, bw/2, bh/2)
+  grad.addColorStop(0, color + 'ee')
+  grad.addColorStop(1, color + '77')
+  ctx.fillStyle = grad
+  ctx.fill()
+
+  // Edge stroke
+  ctx.shadowBlur  = 26
+  ctx.strokeStyle = color
+  ctx.lineWidth   = 1.5
+  ctx.stroke()
+
+  // Top shine
+  ctx.shadowBlur = 0
+  const shine = ctx.createLinearGradient(-bw/2, -bh/2, -bw/2, 0)
+  shine.addColorStop(0, 'rgba(255,255,255,0.22)')
+  shine.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = shine
+  roundRect(ctx, -bw/2, -bh/2, bw, bh/2, r)
+  ctx.fill()
+
+  ctx.restore()
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
 const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
-  const innerRef        = useRef(null)
-  const engineRef       = useRef(null)
-  const runnerRef       = useRef(null)
-  const bodiesRef       = useRef([])        // [{ body, color, id }]
-  const animRef         = useRef(null)
-  const hasFallenRef    = useRef(false)
-  const onTowerFallRef  = useRef(onTowerFall)
-  const dimsRef         = useRef({ w: 0, h: 0, blockW: 0 })
+  const containerRef  = useRef(null)
+  const canvasRef     = useRef(null)
+  const engineRef     = useRef(null)
+  const runnerRef     = useRef(null)
+  const bodiesRef     = useRef([])          // [{ body, color }]
+  const hasFallenRef  = useRef(false)
+  const onFallRef     = useRef(onTowerFall)
+  const dimsRef       = useRef({ w: 0, h: 0, blockW: 0, blockH: 36 })
+  const camRef        = useRef(0)           // current camera offset (px, positive = scrolled up)
+  const camTargetRef  = useRef(0)
+  const animRef       = useRef(null)
 
-  const [renderBlocks, setRenderBlocks] = useState([])
-  const [cameraOffset, setCameraOffset] = useState(0)
+  const [stackCount, setStackCount] = useState(0)
 
-  // Keep callback ref fresh without restarting the engine
-  useEffect(() => { onTowerFallRef.current = onTowerFall }, [onTowerFall])
+  useEffect(() => { onFallRef.current = onTowerFall }, [onTowerFall])
 
-  // ── Initialise Matter.js engine once ────────────────────────────────────────
+  // ── Engine init ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const el = innerRef.current
-    if (!el || !window.Matter) return
+    const container = containerRef.current
+    if (!container || !window.Matter) return
 
-    const { width: w, height: h } = el.getBoundingClientRect()
+    const rect  = container.getBoundingClientRect()
+    const w     = rect.width
+    const h     = rect.height
+    const blockH = Math.max(32, Math.floor(h * 0.058))
     const blockW = Math.round(w * WIDTH_RATIO)
-    dimsRef.current = { w, h, blockW }
+    dimsRef.current = { w, h, blockW, blockH }
+
+    // High-DPI canvas
+    const dpr    = window.devicePixelRatio || 1
+    const canvas = canvasRef.current
+    canvas.width        = w * dpr
+    canvas.height       = h * dpr
+    canvas.style.width  = w + 'px'
+    canvas.style.height = h + 'px'
+    const ctx = canvas.getContext('2d')
+    ctx.scale(dpr, dpr)
 
     const { Engine, World, Bodies, Runner } = window.Matter
 
-    const engine = Engine.create({ gravity: { y: 1.8 } })
+    const engine = Engine.create({ gravity: { x: 0, y: 1.8 } })
     engineRef.current = engine
 
-    // Static boundary bodies
-    const ground = Bodies.rectangle(w / 2, h + 6,  w + 20, 12, { isStatic: true, restitution: 0.05, friction: 1 })
-    const wallL  = Bodies.rectangle(-5,    h / 2,   10,     h,  { isStatic: true, friction: 1 })
-    const wallR  = Bodies.rectangle(w + 5, h / 2,   10,     h,  { isStatic: true, friction: 1 })
+    // Static boundaries — same layout as reference
+    const ground = Bodies.rectangle(w / 2,  h + 25, w * 3,  50,    { isStatic: true, label: 'ground', friction: 1 })
+    const wallL  = Bodies.rectangle(-30,    h / 2,  60,     h * 4, { isStatic: true, label: 'wall'   })
+    const wallR  = Bodies.rectangle(w + 30, h / 2,  60,     h * 4, { isStatic: true, label: 'wall'   })
     World.add(engine.world, [ground, wallL, wallR])
 
     const runner = Runner.create()
     Runner.run(runner, engine)
     runnerRef.current = runner
 
-    // ── Render loop: sync physics → React state every frame ─────────────────
+    // ── Render loop ───────────────────────────────────────────────────────────
     const loop = () => {
-      const { h: ch } = dimsRef.current
-      const entries   = bodiesRef.current
+      const entries    = bodiesRef.current
+      const { blockW: bw, blockH: bh, h: ch, w: cw } = dimsRef.current
 
-      if (entries.length > 0) {
-        // Collapse detection: any block fell well below the floor
-        if (!hasFallenRef.current) {
-          for (const { body } of entries) {
-            if (body.position.y > ch + 120) {
-              hasFallenRef.current = true
-              onTowerFallRef.current()
-              break
-            }
+      // Smooth camera lerp
+      camRef.current += (camTargetRef.current - camRef.current) * 0.06
+
+      const cam = camRef.current
+
+      // Clear
+      ctx.clearRect(0, 0, cw, ch)
+
+      // Ground line at visual bottom (not in camera space)
+      ctx.save()
+      ctx.shadowColor = 'rgba(255,255,255,0.2)'
+      ctx.shadowBlur  = 8
+      ctx.strokeStyle = 'rgba(255,255,255,0.10)'
+      ctx.lineWidth   = 1
+      ctx.beginPath()
+      ctx.moveTo(0, ch - 1)
+      ctx.lineTo(cw, ch - 1)
+      ctx.stroke()
+      ctx.restore()
+
+      // Blocks — translated by camera offset
+      ctx.save()
+      ctx.translate(0, cam)
+      for (const { body, color } of entries) {
+        drawBlock(ctx, body, color, bw, bh)
+      }
+      ctx.restore()
+
+      // Collapse detection — any block fell below the floor
+      if (!hasFallenRef.current && entries.length > 0) {
+        for (const { body } of entries) {
+          if (body.position.y > ch + 100) {
+            hasFallenRef.current = true
+            onFallRef.current()
+            break
           }
-        }
-
-        // Camera: keep topmost block in upper portion of view
-        const topY = Math.min(...entries.map(e => e.body.position.y - BLOCK_H / 2))
-        const pad  = ch * 0.22
-        if (topY < pad) {
-          setCameraOffset(prev => {
-            const next = Math.max(0, pad - topY)
-            return Math.abs(next - prev) > 0.5 ? next : prev
-          })
         }
       }
 
-      setRenderBlocks(
-        entries.map(({ body, color, id }) => ({
-          id,
-          color,
-          x:      body.position.x,
-          y:      body.position.y,
-          angle:  body.angle,
-          width:  dimsRef.current.blockW,
-          height: BLOCK_H,
-        }))
-      )
+      // Camera target: keep topmost block in upper portion of view
+      if (entries.length > 0) {
+        const topY = Math.min(...entries.map(e => e.body.position.y - bh / 2))
+        const pad  = ch * 0.22
+        if (topY < pad) {
+          camTargetRef.current = Math.max(0, pad - topY)
+        }
+      }
 
       animRef.current = requestAnimationFrame(loop)
     }
@@ -95,31 +174,34 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
     }
   }, [])
 
-  // ── Exposed API ─────────────────────────────────────────────────────────────
+  // ── Exposed API ──────────────────────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
 
     dropBlock: (offsetX, alignmentScore) => {
-      const { w, blockW } = dimsRef.current
+      const { w, blockW, blockH } = dimsRef.current
       if (!w || !window.Matter || !engineRef.current) return
 
       hasFallenRef.current = false
 
       const { Bodies, World } = window.Matter
+      const hue    = alignmentScore * 120
+      const color  = `hsl(${hue}, 72%, 55%)`
+      const rawX   = w / 2 + offsetX * w * 0.50
+      const cx     = Math.max(blockW / 2 + 4, Math.min(w - blockW / 2 - 4, rawX))
+      // Start block above the visible top of the camera view
+      const startY = -blockH * 2 - Math.max(0, camRef.current)
 
-      const hue      = alignmentScore * 120
-      const color    = `hsl(${hue}, 72%, 52%)`
-      const rawX     = w / 2 + offsetX * w * 0.50
-      const clampedX = Math.max(blockW / 2 + 4, Math.min(w - blockW / 2 - 4, rawX))
-
-      const body = Bodies.rectangle(clampedX, -BLOCK_H * 2, blockW, BLOCK_H, {
-        restitution: 0.05,
-        friction:    0.85,
-        frictionAir: 0.01,
+      const body = Bodies.rectangle(cx, startY, blockW, blockH, {
+        restitution: 0.04,
+        friction:    0.65,
+        frictionAir: 0.008,
         density:     0.003,
+        label:       'block',
       })
 
-      bodiesRef.current = [...bodiesRef.current, { body, color, id: Date.now() }]
+      bodiesRef.current = [...bodiesRef.current, { body, color }]
       World.add(engineRef.current.world, body)
+      setStackCount(c => c + 1)
     },
 
     resetBlocks: () => {
@@ -128,8 +210,9 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
       bodiesRef.current.forEach(({ body }) => World.remove(engineRef.current.world, body))
       bodiesRef.current    = []
       hasFallenRef.current = false
-      setRenderBlocks([])
-      setCameraOffset(0)
+      camRef.current       = 0
+      camTargetRef.current = 0
+      setStackCount(0)
     },
 
   }))
@@ -140,7 +223,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
 
       {/* Bordered tower container */}
       <div
-        ref={innerRef}
+        ref={containerRef}
         style={{
           position:     'absolute',
           left: 18, right: 18,
@@ -151,66 +234,22 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
           background:   '#09090b',
         }}
       >
-        {/* Camera layer */}
-        <div style={{
-          position:   'absolute',
-          inset:      0,
-          transform:  `translateY(${-cameraOffset}px)`,
-          transition: 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
-        }}>
+        <canvas ref={canvasRef} style={{ display: 'block', borderRadius: 20 }} />
 
-          {renderBlocks.length === 0 && (
-            <div style={{ position: 'absolute', bottom: 18, left: 0, right: 0, textAlign: 'center' }}>
-              <span style={{ color: 'var(--text-3)', fontSize: 12 }}>Tower will be built here</span>
-            </div>
-          )}
-
-          {renderBlocks.map(block => (
-            <div
-              key={block.id}
-              style={{
-                position:  'absolute',
-                left:      block.x - block.width  / 2,
-                top:       block.y - block.height / 2,
-                width:     block.width,
-                height:    block.height,
-                transform: `rotate(${block.angle}rad)`,
-                willChange: 'transform, top, left',
-              }}
-            >
-              {/* Glow */}
-              <div style={{
-                position:     'absolute', inset: 0,
-                borderRadius: 6,
-                background:   block.color,
-                filter:       'blur(5px)',
-                opacity:      0.28,
-                transform:    'translateY(3px)',
-              }} />
-              {/* Body */}
-              <div style={{
-                position:     'absolute', inset: 0,
-                borderRadius: 6,
-                background:   `linear-gradient(155deg, ${block.color}f0 0%, ${block.color}99 100%)`,
-                border:       '1px solid rgba(255,255,255,0.11)',
-                overflow:     'hidden',
-              }}>
-                {/* Highlight */}
-                <div style={{
-                  position:     'absolute',
-                  top: 0, left: 0, right: 0,
-                  height:       '44%',
-                  borderRadius: '6px 6px 0 0',
-                  background:   'linear-gradient(to bottom, rgba(255,255,255,0.18), transparent)',
-                }} />
-              </div>
-            </div>
-          ))}
-        </div>
+        {stackCount === 0 && (
+          <div style={{
+            position:      'absolute',
+            bottom: 18, left: 0, right: 0,
+            textAlign:     'center',
+            pointerEvents: 'none',
+          }}>
+            <span style={{ color: 'var(--text-3)', fontSize: 12 }}>Tower will be built here</span>
+          </div>
+        )}
       </div>
 
       {/* Block counter */}
-      {renderBlocks.length > 0 && (
+      {stackCount > 0 && (
         <div style={{
           position:       'absolute', top: 16, left: 16,
           background:     'rgba(0,0,0,0.55)',
@@ -220,7 +259,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
           border:         '1px solid var(--border)',
         }}>
           <p style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Stacked</p>
-          <p style={{ color: 'var(--text-1)', fontSize: 22, fontWeight: 800, lineHeight: 1 }}>{renderBlocks.length}</p>
+          <p style={{ color: 'var(--text-1)', fontSize: 22, fontWeight: 800, lineHeight: 1 }}>{stackCount}</p>
         </div>
       )}
     </div>
