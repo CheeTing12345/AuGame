@@ -568,61 +568,32 @@ export default function TowerGame() {
         )}
       </AnimatePresence>
 
-      {/* ── Dropping: hint + continue button ── */}
+      {/* ── Dropping: continue button sits in the 76px strip below the tower ── */}
       <AnimatePresence>
-        {phase === 'dropping' && (
+        {phase === 'dropping' && showContinueBtn && (
           <motion.div
-            key="dropping-ui"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            key="dropping-continue"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             style={{
-              position:      'absolute', inset: 0, zIndex: 5,
-              display:       'flex', flexDirection: 'column', alignItems: 'center',
-              pointerEvents: 'none',
+              position: 'absolute',
+              left: 0, right: 0, bottom: 0,
+              height:   76,
+              display:  'flex', alignItems: 'center',
+              padding:  '0 20px',
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+              zIndex:   5,
             }}
           >
-            <motion.div
-              initial={{ y: -16, opacity: 0 }}
-              animate={{ y: 0,   opacity: 1 }}
-              transition={{ delay: 0.3 }}
-              style={{
-                marginTop:      56,
-                background:     'rgba(0,0,0,0.6)',
-                backdropFilter: 'blur(8px)',
-                border:         '1px solid var(--border)',
-                borderRadius:   9999,
-                padding:        '8px 18px',
-              }}
+            <motion.button
+              className="btn-primary"
+              whileTap={{ scale: 0.98 }}
+              onClick={handleAfterDrop}
+              style={{ background: 'var(--violet)', color: '#fff' }}
             >
-              <p className="pulse" style={{ color: 'var(--text-1)', fontSize: 13, fontWeight: 500 }}>
-                Watch the block land...
-              </p>
-            </motion.div>
-
-            <AnimatePresence>
-              {showContinueBtn && (
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0,  opacity: 1 }}
-                  style={{
-                    position:      'absolute', bottom: 0, left: 0, right: 0,
-                    padding:       '0 20px',
-                    paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
-                    pointerEvents: 'auto',
-                  }}
-                >
-                  <motion.button
-                    className="btn-primary"
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleAfterDrop}
-                    style={{ background: 'var(--violet)', color: '#fff' }}
-                  >
-                    Looks good — continue
-                  </motion.button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+              Continue →
+            </motion.button>
           </motion.div>
         )}
       </AnimatePresence>

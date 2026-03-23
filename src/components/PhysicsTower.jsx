@@ -1,8 +1,8 @@
-import { useRef, useState, useImperativeHandle, forwardRef, useEffect } from 'react'
+import { useRef, useImperativeHandle, forwardRef, useEffect } from 'react'
 
 const WIDTH_RATIO = 0.33
 
-// ── Canvas helpers ───────────────────────────────────────────────────────────
+// ── Canvas helpers ────────────────────────────────────────────────────────────
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath()
   ctx.moveTo(x + r, y)
@@ -24,28 +24,28 @@ function drawBlock(ctx, body, color, bw, bh) {
   ctx.translate(x, y)
   ctx.rotate(body.angle)
 
-  // Glow
+  // Subtle glow
   ctx.shadowColor = color
-  ctx.shadowBlur  = 18
+  ctx.shadowBlur  = 7
   roundRect(ctx, -bw/2, -bh/2, bw, bh, r)
 
   // Body gradient
   const grad = ctx.createLinearGradient(-bw/2, -bh/2, bw/2, bh/2)
-  grad.addColorStop(0, color + 'ee')
-  grad.addColorStop(1, color + '77')
+  grad.addColorStop(0, color + 'dd')
+  grad.addColorStop(1, color + '66')
   ctx.fillStyle = grad
   ctx.fill()
 
-  // Edge stroke
-  ctx.shadowBlur  = 26
+  // Edge stroke (reduced glow)
+  ctx.shadowBlur  = 10
   ctx.strokeStyle = color
-  ctx.lineWidth   = 1.5
+  ctx.lineWidth   = 1
   ctx.stroke()
 
   // Top shine
   ctx.shadowBlur = 0
   const shine = ctx.createLinearGradient(-bw/2, -bh/2, -bw/2, 0)
-  shine.addColorStop(0, 'rgba(255,255,255,0.22)')
+  shine.addColorStop(0, 'rgba(255,255,255,0.18)')
   shine.addColorStop(1, 'rgba(255,255,255,0)')
   ctx.fillStyle = shine
   roundRect(ctx, -bw/2, -bh/2, bw, bh/2, r)
@@ -54,32 +54,32 @@ function drawBlock(ctx, body, color, bw, bh) {
   ctx.restore()
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
   const containerRef  = useRef(null)
   const canvasRef     = useRef(null)
   const engineRef     = useRef(null)
   const runnerRef     = useRef(null)
-  const bodiesRef     = useRef([])          // [{ body, color }]
+  const bodiesRef     = useRef([])       // [{ body, color }]
   const hasFallenRef  = useRef(false)
   const onFallRef     = useRef(onTowerFall)
   const dimsRef       = useRef({ w: 0, h: 0, blockW: 0, blockH: 36 })
-  const camRef        = useRef(0)           // current camera offset (px, positive = scrolled up)
+  const camRef        = useRef(0)
   const camTargetRef  = useRef(0)
   const animRef       = useRef(null)
-
-  const [stackCount, setStackCount] = useState(0)
+  const justAddedRef  = useRef(false)
+  const blinkTimerRef = useRef(null)
 
   useEffect(() => { onFallRef.current = onTowerFall }, [onTowerFall])
 
-  // ── Engine init ─────────────────────────────────────────────────────────────
+  // ── Engine init ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const container = containerRef.current
     if (!container || !window.Matter) return
 
-    const rect  = container.getBoundingClientRect()
-    const w     = rect.width
-    const h     = rect.height
+    // clientWidth/clientHeight = content area only (no border), avoids 1px clip
+    const w      = container.clientWidth
+    const h      = container.clientHeight
     const blockH = Math.max(32, Math.floor(h * 0.058))
     const blockW = Math.round(w * WIDTH_RATIO)
     dimsRef.current = { w, h, blockW, blockH }
@@ -95,45 +95,31 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
     ctx.scale(dpr, dpr)
 
     const { Engine, World, Bodies, Runner } = window.Matter
-
     const engine = Engine.create({ gravity: { x: 0, y: 1.8 } })
     engineRef.current = engine
 
-    // Narrow ground — blocks that slide off the edge fall freely (enables collapse detection).
-    // Center at h+11 with height 30 → top surface at h-4, so blocks rest 4px above canvas bottom.
-    const ground = Bodies.rectangle(w / 2, h + 11, w + 20, 30, { isStatic: true, label: 'ground', friction: 1 })
+    // Ground: center at h+5, height 30 → top surface at h-10
+    // Narrow width (w+20) so blocks that slide off the edge fall freely
+    const ground = Bodies.rectangle(w / 2, h + 5, w + 20, 30, {
+      isStatic: true, label: 'ground', friction: 1,
+    })
     World.add(engine.world, [ground])
 
     const runner = Runner.create()
     Runner.run(runner, engine)
     runnerRef.current = runner
 
-    // ── Render loop ───────────────────────────────────────────────────────────
+    // ── Render loop ────────────────────────────────────────────────────────────
     const loop = () => {
-      const entries    = bodiesRef.current
+      const entries = bodiesRef.current
       const { blockW: bw, blockH: bh, h: ch, w: cw } = dimsRef.current
 
-      // Smooth camera lerp
       camRef.current += (camTargetRef.current - camRef.current) * 0.06
-
       const cam = camRef.current
 
-      // Clear
       ctx.clearRect(0, 0, cw, ch)
 
-      // Ground line at visual bottom (not in camera space)
-      ctx.save()
-      ctx.shadowColor = 'rgba(255,255,255,0.2)'
-      ctx.shadowBlur  = 8
-      ctx.strokeStyle = 'rgba(255,255,255,0.10)'
-      ctx.lineWidth   = 1
-      ctx.beginPath()
-      ctx.moveTo(0, ch - 1)
-      ctx.lineTo(cw, ch - 1)
-      ctx.stroke()
-      ctx.restore()
-
-      // Blocks — translated by camera offset
+      // Blocks in camera space
       ctx.save()
       ctx.translate(0, cam)
       for (const { body, color } of entries) {
@@ -141,15 +127,43 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
       }
       ctx.restore()
 
-      // Collapse detection:
-      // 1. Any block fell off the narrow ground (y > ch+60 or past canvas x-bounds)
-      // 2. Any previously-settled block (not the newest) has tipped > ~23°
+      // Empty placeholder
+      if (entries.length === 0) {
+        ctx.save()
+        ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif'
+        ctx.fillStyle = 'rgba(255,255,255,0.18)'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'bottom'
+        ctx.fillText('Tower will be built here', cw / 2, ch - 14)
+        ctx.restore()
+      }
+
+      // Stacked counter — top-left label, top-right number, blinks when block added
+      if (entries.length > 0) {
+        const blinking = justAddedRef.current
+        ctx.save()
+        ctx.font = '500 10px -apple-system, BlinkMacSystemFont, sans-serif'
+        ctx.fillStyle = blinking ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.3)'
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'top'
+        ctx.fillText('STACKED', 14, 14)
+
+        ctx.font = `800 ${blinking ? '26px' : '22px'} -apple-system, BlinkMacSystemFont, sans-serif`
+        ctx.fillStyle = blinking ? '#ffffff' : 'rgba(255,255,255,0.75)'
+        ctx.textAlign = 'right'
+        ctx.textBaseline = 'top'
+        ctx.fillText(entries.length, cw - 14, 10)
+        ctx.restore()
+      }
+
+      // Collapse detection
       if (!hasFallenRef.current && entries.length > 0) {
         for (let i = 0; i < entries.length; i++) {
           const body = entries[i].body
           const outOfBounds = body.position.y > ch + 60 ||
                               body.position.x < -bw * 1.5 ||
                               body.position.x > cw + bw * 1.5
+          // Any previously-settled block tipping past ~23° = tower falling
           const tipped = i < entries.length - 1 && Math.abs(body.angle) > 0.4
           if (outOfBounds || tipped) {
             hasFallenRef.current = true
@@ -159,13 +173,11 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
         }
       }
 
-      // Camera target: keep topmost block in upper portion of view
+      // Camera: keep topmost block in upper portion of view
       if (entries.length > 0) {
         const topY = Math.min(...entries.map(e => e.body.position.y - bh / 2))
         const pad  = ch * 0.22
-        if (topY < pad) {
-          camTargetRef.current = Math.max(0, pad - topY)
-        }
+        if (topY < pad) camTargetRef.current = Math.max(0, pad - topY)
       }
 
       animRef.current = requestAnimationFrame(loop)
@@ -180,7 +192,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
     }
   }, [])
 
-  // ── Exposed API ──────────────────────────────────────────────────────────────
+  // ── Exposed API ───────────────────────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
 
     dropBlock: (offsetX, alignmentScore) => {
@@ -194,7 +206,6 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
       const color  = `hsl(${hue}, 72%, 55%)`
       const rawX   = w / 2 + offsetX * w * 0.50
       const cx     = Math.max(blockW / 2 + 4, Math.min(w - blockW / 2 - 4, rawX))
-      // Start block above the visible top of the camera view
       const startY = -blockH * 2 - Math.max(0, camRef.current)
 
       const body = Bodies.rectangle(cx, startY, blockW, blockH, {
@@ -207,7 +218,11 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
 
       bodiesRef.current = [...bodiesRef.current, { body, color }]
       World.add(engineRef.current.world, body)
-      setStackCount(c => c + 1)
+
+      // Trigger blink for 500 ms
+      justAddedRef.current = true
+      clearTimeout(blinkTimerRef.current)
+      blinkTimerRef.current = setTimeout(() => { justAddedRef.current = false }, 500)
     },
 
     resetBlocks: () => {
@@ -218,61 +233,29 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
       hasFallenRef.current = false
       camRef.current       = 0
       camTargetRef.current = 0
-      setStackCount(0)
     },
 
-    // Smoothly pan camera back to show the base of the tower
-    panToBase: () => {
-      camTargetRef.current = 0
-    },
+    panToBase: () => { camTargetRef.current = 0 },
 
   }))
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'absolute', inset: 0, background: 'var(--bg)' }}>
-
-      {/* Bordered tower container */}
       <div
         ref={containerRef}
         style={{
           position:     'absolute',
           left: 18, right: 18,
           top: 68, bottom: 76,
-          border:       '1px solid var(--border)',
+          border:       '1.5px dashed rgba(255,255,255,0.14)',
           borderRadius: 20,
           overflow:     'hidden',
           background:   '#09090b',
         }}
       >
-        <canvas ref={canvasRef} style={{ display: 'block', borderRadius: 20 }} />
-
-        {stackCount === 0 && (
-          <div style={{
-            position:      'absolute',
-            bottom: 18, left: 0, right: 0,
-            textAlign:     'center',
-            pointerEvents: 'none',
-          }}>
-            <span style={{ color: 'var(--text-3)', fontSize: 12 }}>Tower will be built here</span>
-          </div>
-        )}
+        <canvas ref={canvasRef} style={{ display: 'block' }} />
       </div>
-
-      {/* Block counter */}
-      {stackCount > 0 && (
-        <div style={{
-          position:       'absolute', top: 16, left: 16,
-          background:     'rgba(0,0,0,0.55)',
-          backdropFilter: 'blur(8px)',
-          borderRadius:   12,
-          padding:        '8px 14px',
-          border:         '1px solid var(--border)',
-        }}>
-          <p style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Stacked</p>
-          <p style={{ color: 'var(--text-1)', fontSize: 22, fontWeight: 800, lineHeight: 1 }}>{stackCount}</p>
-        </div>
-      )}
     </div>
   )
 })
