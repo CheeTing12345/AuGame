@@ -138,7 +138,7 @@ export default function TowerGame() {
     })
     const t = setTimeout(() => setShowContinueBtn(true), 3500)
     return () => { cancelAnimationFrame(frame); clearTimeout(t) }
-  }, [phase, questionIndex, myAnswer, partnerAnswer])
+  }, [phase, questionIndex, myAnswer, partnerAnswer, players])
 
   // Sync tower fall → failed phase
   useEffect(() => {

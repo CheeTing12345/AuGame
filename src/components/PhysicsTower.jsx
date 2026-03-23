@@ -99,11 +99,10 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
     const engine = Engine.create({ gravity: { x: 0, y: 1.8 } })
     engineRef.current = engine
 
-    // Static boundaries — same layout as reference
-    const ground = Bodies.rectangle(w / 2,  h + 25, w * 3,  50,    { isStatic: true, label: 'ground', friction: 1 })
-    const wallL  = Bodies.rectangle(-30,    h / 2,  60,     h * 4, { isStatic: true, label: 'wall'   })
-    const wallR  = Bodies.rectangle(w + 30, h / 2,  60,     h * 4, { isStatic: true, label: 'wall'   })
-    World.add(engine.world, [ground, wallL, wallR])
+    // Narrow ground — blocks that slide off the edge fall freely (enables collapse detection).
+    // Center at h+11 with height 30 → top surface at h-4, so blocks rest 4px above canvas bottom.
+    const ground = Bodies.rectangle(w / 2, h + 11, w + 20, 30, { isStatic: true, label: 'ground', friction: 1 })
+    World.add(engine.world, [ground])
 
     const runner = Runner.create()
     Runner.run(runner, engine)
@@ -142,10 +141,17 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
       }
       ctx.restore()
 
-      // Collapse detection — any block fell below the floor
+      // Collapse detection:
+      // 1. Any block fell off the narrow ground (y > ch+60 or past canvas x-bounds)
+      // 2. Any previously-settled block (not the newest) has tipped > ~23°
       if (!hasFallenRef.current && entries.length > 0) {
-        for (const { body } of entries) {
-          if (body.position.y > ch + 100) {
+        for (let i = 0; i < entries.length; i++) {
+          const body = entries[i].body
+          const outOfBounds = body.position.y > ch + 60 ||
+                              body.position.x < -bw * 1.5 ||
+                              body.position.x > cw + bw * 1.5
+          const tipped = i < entries.length - 1 && Math.abs(body.angle) > 0.4
+          if (outOfBounds || tipped) {
             hasFallenRef.current = true
             onFallRef.current()
             break
