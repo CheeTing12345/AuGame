@@ -51,14 +51,13 @@ export default function Welcome() {
           </div>
 
           <h1 className="font-serif" style={{
-            fontSize: 58,
-            fontWeight: 900,
+            fontSize: 42,
             color: 'var(--text-1)',
-            lineHeight: 1,
-            letterSpacing: '-0.02em',
-            marginBottom: 10,
+            lineHeight: 1.15,
+            marginBottom: 8,
           }}>
-            Common Ground
+            Common<br />
+            <span style={{ fontStyle: 'italic' }}>Ground</span>
           </h1>
           <p style={{ color: 'var(--text-2)', fontSize: 15 }}>
             build it together
