@@ -56,7 +56,7 @@ export default function Welcome() {
             lineHeight: 1.15,
             marginBottom: 8,
           }}>
-            Common<br />
+            <span style={{ fontStyle: 'italic' }}>Common</span><br />
             <span style={{ fontStyle: 'italic' }}>Ground</span>
           </h1>
           <p style={{ color: 'var(--text-2)', fontSize: 15 }}>
