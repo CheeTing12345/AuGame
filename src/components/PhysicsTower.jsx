@@ -1,118 +1,140 @@
 import { useRef, useState, useImperativeHandle, forwardRef, useEffect } from 'react'
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const BLOCK_H        = 36
-const GRAVITY        = 0.52
-const MAX_VEL        = 18
-const WIDTH_RATIO    = 0.33
-// Collapse if the new block's x-center is more than this fraction of blockW
-// away from the block below it (i.e. barely hanging on)
-const COLLAPSE_OVERHANG = 0.52   // > 52% overhang → collapse
+const BLOCK_H     = 36
+const WIDTH_RATIO = 0.33
 
-// ── Component ─────────────────────────────────────────────────────────────────
 const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
-  const innerRef     = useRef(null)
-  const blocksRef    = useRef([])
-  const animRef      = useRef(null)
-  const hasFallenRef = useRef(false)
-  const dimsRef      = useRef({ w: 0, h: 0, groundY: 0, blockW: 0 })
+  const innerRef        = useRef(null)
+  const engineRef       = useRef(null)
+  const runnerRef       = useRef(null)
+  const bodiesRef       = useRef([])        // [{ body, color, id }]
+  const animRef         = useRef(null)
+  const hasFallenRef    = useRef(false)
+  const onTowerFallRef  = useRef(onTowerFall)
+  const dimsRef         = useRef({ w: 0, h: 0, blockW: 0 })
 
-  const [blocks,        setBlocks]        = useState([])
-  const [fallingBlock,  setFallingBlock]  = useState(null)
-  const [cameraOffset,  setCameraOffset]  = useState(0)
+  const [renderBlocks, setRenderBlocks] = useState([])
+  const [cameraOffset, setCameraOffset] = useState(0)
 
-  // Measure the bordered container after mount
+  // Keep callback ref fresh without restarting the engine
+  useEffect(() => { onTowerFallRef.current = onTowerFall }, [onTowerFall])
+
+  // ── Initialise Matter.js engine once ────────────────────────────────────────
   useEffect(() => {
     const el = innerRef.current
-    if (!el) return
+    if (!el || !window.Matter) return
+
     const { width: w, height: h } = el.getBoundingClientRect()
-    dimsRef.current = {
-      w,
-      h,
-      groundY: h - 12,
-      blockW:  Math.round(w * WIDTH_RATIO),
+    const blockW = Math.round(w * WIDTH_RATIO)
+    dimsRef.current = { w, h, blockW }
+
+    const { Engine, World, Bodies, Runner } = window.Matter
+
+    const engine = Engine.create({ gravity: { y: 1.8 } })
+    engineRef.current = engine
+
+    // Static boundary bodies
+    const ground = Bodies.rectangle(w / 2, h + 6,  w + 20, 12, { isStatic: true, restitution: 0.05, friction: 1 })
+    const wallL  = Bodies.rectangle(-5,    h / 2,   10,     h,  { isStatic: true, friction: 1 })
+    const wallR  = Bodies.rectangle(w + 5, h / 2,   10,     h,  { isStatic: true, friction: 1 })
+    World.add(engine.world, [ground, wallL, wallR])
+
+    const runner = Runner.create()
+    Runner.run(runner, engine)
+    runnerRef.current = runner
+
+    // ── Render loop: sync physics → React state every frame ─────────────────
+    const loop = () => {
+      const { h: ch } = dimsRef.current
+      const entries   = bodiesRef.current
+
+      if (entries.length > 0) {
+        // Collapse detection: any block fell well below the floor
+        if (!hasFallenRef.current) {
+          for (const { body } of entries) {
+            if (body.position.y > ch + 120) {
+              hasFallenRef.current = true
+              onTowerFallRef.current()
+              break
+            }
+          }
+        }
+
+        // Camera: keep topmost block in upper portion of view
+        const topY = Math.min(...entries.map(e => e.body.position.y - BLOCK_H / 2))
+        const pad  = ch * 0.22
+        if (topY < pad) {
+          setCameraOffset(prev => {
+            const next = Math.max(0, pad - topY)
+            return Math.abs(next - prev) > 0.5 ? next : prev
+          })
+        }
+      }
+
+      setRenderBlocks(
+        entries.map(({ body, color, id }) => ({
+          id,
+          color,
+          x:      body.position.x,
+          y:      body.position.y,
+          angle:  body.angle,
+          width:  dimsRef.current.blockW,
+          height: BLOCK_H,
+        }))
+      )
+
+      animRef.current = requestAnimationFrame(loop)
+    }
+    animRef.current = requestAnimationFrame(loop)
+
+    return () => {
+      cancelAnimationFrame(animRef.current)
+      Runner.stop(runner)
+      World.clear(engine.world, false)
+      Engine.clear(engine)
     }
   }, [])
 
+  // ── Exposed API ─────────────────────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
 
     dropBlock: (offsetX, alignmentScore) => {
-      const { w, h, groundY, blockW } = dimsRef.current
-      if (!w) return
+      const { w, blockW } = dimsRef.current
+      if (!w || !window.Matter || !engineRef.current) return
 
       hasFallenRef.current = false
-      if (animRef.current) cancelAnimationFrame(animRef.current)
+
+      const { Bodies, World } = window.Matter
 
       const hue      = alignmentScore * 120
-      const centerX  = w / 2
-      // offsetX is -0.35…0.35 — scale to roughly ±30% of container width
-      const rawX     = centerX + offsetX * w * 0.50
+      const color    = `hsl(${hue}, 72%, 52%)`
+      const rawX     = w / 2 + offsetX * w * 0.50
       const clampedX = Math.max(blockW / 2 + 4, Math.min(w - blockW / 2 - 4, rawX))
 
-      const stackCount = blocksRef.current.length
-      const targetY    = groundY - (stackCount + 1) * BLOCK_H
+      const body = Bodies.rectangle(clampedX, -BLOCK_H * 2, blockW, BLOCK_H, {
+        restitution: 0.05,
+        friction:    0.85,
+        frictionAir: 0.01,
+        density:     0.003,
+      })
 
-      const color = `hsl(${hue}, 72%, 52%)`
-
-      // ── Animate fall (straight down, no rotation) ───────────────────────
-      let y   = -BLOCK_H
-      let vel = 2
-
-      const step = () => {
-        vel = Math.min(vel + GRAVITY, MAX_VEL)
-        y  += vel
-
-        if (y >= targetY) {
-          // Block has landed — settle it
-          y = targetY
-          const settled = { id: Date.now(), x: clampedX, y, width: blockW, height: BLOCK_H, color }
-          blocksRef.current = [...blocksRef.current, settled]
-          setBlocks([...blocksRef.current])
-          setFallingBlock(null)
-
-          // Scroll camera up if tower is getting tall
-          const topY = groundY - blocksRef.current.length * BLOCK_H
-          const pad  = h * 0.22
-          if (topY < pad) setCameraOffset(Math.max(0, pad - topY))
-
-          // Collapse check: is the new block overhanging the one below?
-          if (!hasFallenRef.current && blocksRef.current.length > 1) {
-            const prev    = blocksRef.current[blocksRef.current.length - 2]
-            const overhang = Math.abs(settled.x - prev.x)
-            if (overhang > blockW * COLLAPSE_OVERHANG) {
-              hasFallenRef.current = true
-              onTowerFall()
-            }
-          }
-          return
-        }
-
-        setFallingBlock({ id: 'falling', x: clampedX, y, width: blockW, height: BLOCK_H, color })
-        animRef.current = requestAnimationFrame(step)
-      }
-
-      setFallingBlock({ id: 'falling', x: clampedX, y, width: blockW, height: BLOCK_H, color })
-      animRef.current = requestAnimationFrame(step)
+      bodiesRef.current = [...bodiesRef.current, { body, color, id: Date.now() }]
+      World.add(engineRef.current.world, body)
     },
 
     resetBlocks: () => {
-      if (animRef.current) cancelAnimationFrame(animRef.current)
-      blocksRef.current    = []
+      if (!engineRef.current || !window.Matter) return
+      const { World } = window.Matter
+      bodiesRef.current.forEach(({ body }) => World.remove(engineRef.current.world, body))
+      bodiesRef.current    = []
       hasFallenRef.current = false
-      setBlocks([])
-      setFallingBlock(null)
+      setRenderBlocks([])
       setCameraOffset(0)
     },
 
   }))
 
-  useEffect(() => () => {
-    if (animRef.current) cancelAnimationFrame(animRef.current)
-  }, [])
-
-  const allBlocks = fallingBlock ? [...blocks, fallingBlock] : blocks
-
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div style={{ position: 'absolute', inset: 0, background: 'var(--bg)' }}>
 
@@ -137,22 +159,23 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
           transition: 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
         }}>
 
-          {allBlocks.length === 0 && (
+          {renderBlocks.length === 0 && (
             <div style={{ position: 'absolute', bottom: 18, left: 0, right: 0, textAlign: 'center' }}>
               <span style={{ color: 'var(--text-3)', fontSize: 12 }}>Tower will be built here</span>
             </div>
           )}
 
-          {allBlocks.map(block => (
+          {renderBlocks.map(block => (
             <div
               key={block.id}
               style={{
-                position:    'absolute',
-                left:        block.x - block.width / 2,
-                top:         block.y,
-                width:       block.width,
-                height:      block.height,
-                willChange:  'top',
+                position:  'absolute',
+                left:      block.x - block.width  / 2,
+                top:       block.y - block.height / 2,
+                width:     block.width,
+                height:    block.height,
+                transform: `rotate(${block.angle}rad)`,
+                willChange: 'transform, top, left',
               }}
             >
               {/* Glow */}
@@ -187,7 +210,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
       </div>
 
       {/* Block counter */}
-      {blocks.length > 0 && (
+      {renderBlocks.length > 0 && (
         <div style={{
           position:       'absolute', top: 16, left: 16,
           background:     'rgba(0,0,0,0.55)',
@@ -197,7 +220,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
           border:         '1px solid var(--border)',
         }}>
           <p style={{ color: 'var(--text-3)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Stacked</p>
-          <p style={{ color: 'var(--text-1)', fontSize: 22, fontWeight: 800, lineHeight: 1 }}>{blocks.length}</p>
+          <p style={{ color: 'var(--text-1)', fontSize: 22, fontWeight: 800, lineHeight: 1 }}>{renderBlocks.length}</p>
         </div>
       )}
     </div>
