@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router'
+import { HashRouter as BrowserRouter, Routes, Route } from 'react-router'
 import Welcome from './screens/Welcome'
 import CreateJoin from './screens/CreateJoin'
 import Lobby from './screens/Lobby'
