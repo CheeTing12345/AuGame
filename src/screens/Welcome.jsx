@@ -50,7 +50,7 @@ export default function Welcome() {
             ))}
           </div>
 
-          <h1 style={{
+          <h1 className="font-serif" style={{
             fontSize: 58,
             fontWeight: 900,
             color: 'var(--text-1)',

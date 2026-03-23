@@ -67,7 +67,6 @@ export default function CreateJoin() {
     color: 'var(--text-2)',
     fontSize: 13,
     fontWeight: 500,
-    marginBottom: 10,
   }
 
   return (
@@ -110,7 +109,11 @@ export default function CreateJoin() {
 
         {/* Create room */}
         <div style={{ marginBottom: 24 }}>
-          <p style={sectionLabel}>Start a new session</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            <span style={sectionLabel}>Start a new session</span>
+            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+          </div>
           <motion.button
             className="btn-primary"
             whileTap={{ scale: 0.98 }}
