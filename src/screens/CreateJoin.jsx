@@ -3,6 +3,12 @@ import { useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { insertCoin, myPlayer } from 'playroomkit'
 
+// Letters only — exclude I and O to avoid confusion with 1 and 0
+const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+function generateRoomCode() {
+  return Array.from({ length: 4 }, () => LETTERS[Math.floor(Math.random() * LETTERS.length)]).join('')
+}
+
 export default function CreateJoin() {
   const navigate = useNavigate()
   const [roomCode, setRoomCode] = useState('')
@@ -15,7 +21,7 @@ export default function CreateJoin() {
     setLoading(true)
     setError('')
     try {
-      await insertCoin({ maxPlayersPerRoom: 2, skipLobby: true })
+      await insertCoin({ maxPlayersPerRoom: 2, skipLobby: true, roomCode: generateRoomCode() })
       myPlayer().setState('name', playerName)
       navigate('/lobby')
     } catch {
@@ -57,6 +63,13 @@ export default function CreateJoin() {
     )
   }
 
+  const sectionLabel = {
+    color: 'var(--text-2)',
+    fontSize: 13,
+    fontWeight: 500,
+    marginBottom: 10,
+  }
+
   return (
     <div className="screen">
       <motion.div
@@ -67,7 +80,7 @@ export default function CreateJoin() {
       >
         {/* Header */}
         <div style={{ marginBottom: 32 }}>
-          <h2 className="font-serif" style={{ fontSize: 32, color: 'var(--text-1)', marginBottom: 6 }}>
+          <h2 style={{ fontSize: 32, fontWeight: 800, color: 'var(--text-1)', marginBottom: 6, letterSpacing: '-0.01em' }}>
             Let's play
           </h2>
           <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
@@ -97,9 +110,7 @@ export default function CreateJoin() {
 
         {/* Create room */}
         <div style={{ marginBottom: 24 }}>
-          <p style={{ color: 'var(--text-2)', fontSize: 13, marginBottom: 10 }}>
-            Start a new session
-          </p>
+          <p style={sectionLabel}>Start a new session</p>
           <motion.button
             className="btn-primary"
             whileTap={{ scale: 0.98 }}
@@ -110,14 +121,9 @@ export default function CreateJoin() {
         </div>
 
         {/* Divider */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          marginBottom: 24,
-        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
           <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-          <span style={{ color: 'var(--text-3)', fontSize: 13 }}>or join one</span>
+          <span style={sectionLabel}>or join one</span>
           <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
         </div>
 
@@ -128,17 +134,17 @@ export default function CreateJoin() {
             type="text"
             value={roomCode}
             onChange={(e) => {
-              setRoomCode(e.target.value.toUpperCase())
+              setRoomCode(e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase())
               setError('')
             }}
             onKeyDown={(e) => e.key === 'Enter' && handleJoinRoom()}
             placeholder="ROOM CODE"
-            maxLength={6}
+            maxLength={4}
             style={{
               textAlign: 'center',
-              letterSpacing: '0.2em',
+              letterSpacing: '0.3em',
               fontFamily: 'monospace',
-              fontSize: 22,
+              fontSize: 28,
               fontWeight: 700,
             }}
           />
@@ -147,7 +153,7 @@ export default function CreateJoin() {
             whileTap={{ scale: 0.98 }}
             onClick={handleJoinRoom}
             disabled={!roomCode.trim()}
-            style={{ background: roomCode.trim() ? 'var(--violet)' : undefined, color: roomCode.trim() ? '#fff' : undefined }}
+            style={roomCode.trim() ? { background: 'var(--violet)', color: '#fff' } : {}}
           >
             Join room
           </motion.button>

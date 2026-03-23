@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion } from 'motion/react'
 import {
   myPlayer,
   usePlayersList,
@@ -11,7 +11,6 @@ import {
 
 export default function Lobby() {
   const navigate = useNavigate()
-  const [copied, setCopied] = useState(false)
 
   const players = usePlayersList(true)
   const isHost = useIsHost()
@@ -39,12 +38,6 @@ export default function Lobby() {
 
   const handleReady = () => me.setState('ready', true)
 
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(roomCode)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
   const handleLeave = () => {
     me.leaveRoom?.()
     navigate('/create-join')
@@ -64,7 +57,7 @@ export default function Lobby() {
       >
         {/* Header */}
         <div style={{ marginBottom: 28 }}>
-          <h2 className="font-serif" style={{ fontSize: 32, color: 'var(--text-1)', marginBottom: 6 }}>
+          <h2 style={{ fontSize: 32, fontWeight: 800, color: 'var(--text-1)', marginBottom: 6, letterSpacing: '-0.01em' }}>
             Waiting room
           </h2>
           <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
@@ -77,42 +70,16 @@ export default function Lobby() {
           <p style={{ color: 'var(--text-3)', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
             Room Code
           </p>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 6 }}>
+          <div style={{ marginBottom: 6 }}>
             <span style={{
               fontSize: 36,
               fontWeight: 800,
               fontFamily: 'monospace',
-              letterSpacing: '0.15em',
+              letterSpacing: '0.25em',
               color: 'var(--text-1)',
             }}>
               {roomCode}
             </span>
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={handleCopyCode}
-              style={{
-                background: copied ? 'rgba(34,197,94,0.15)' : 'var(--surface2)',
-                border: '1px solid var(--border)',
-                borderRadius: 10,
-                padding: '8px 10px',
-                cursor: 'pointer',
-                color: copied ? 'var(--green)' : 'var(--text-2)',
-                fontSize: 13,
-                minWidth: 64,
-              }}
-            >
-              <AnimatePresence mode="wait">
-                {copied ? (
-                  <motion.span key="done" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    Copied!
-                  </motion.span>
-                ) : (
-                  <motion.span key="copy" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                    Copy
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            </motion.button>
           </div>
           <p style={{ color: 'var(--text-3)', fontSize: 12 }}>Share with one person</p>
         </div>

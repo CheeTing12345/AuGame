@@ -27,7 +27,7 @@ export default function Welcome() {
             alignItems: 'center',
             justifyContent: 'center',
             gap: 4,
-            marginBottom: 20,
+            marginBottom: 24,
           }}>
             {[...Array(3)].map((_, i) => (
               <motion.div
@@ -50,17 +50,18 @@ export default function Welcome() {
             ))}
           </div>
 
-          <h1 className="font-serif" style={{
-            fontSize: 42,
+          <h1 style={{
+            fontSize: 58,
+            fontWeight: 900,
             color: 'var(--text-1)',
-            lineHeight: 1.15,
-            marginBottom: 8,
+            lineHeight: 1,
+            letterSpacing: '-0.02em',
+            marginBottom: 10,
           }}>
-            Common<br />
-            <span style={{ fontStyle: 'italic' }}>Ground</span>
+            Common Ground
           </h1>
-          <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
-            Build a tower, discover each other
+          <p style={{ color: 'var(--text-2)', fontSize: 15 }}>
+            build it together
           </p>
         </div>
 
@@ -89,16 +90,6 @@ export default function Welcome() {
             Continue
           </motion.button>
         </div>
-
-        <p style={{
-          textAlign: 'center',
-          color: 'var(--text-3)',
-          fontSize: 12,
-          marginTop: 32,
-          lineHeight: 1.6,
-        }}>
-          Two players · No account needed · Mobile friendly
-        </p>
       </motion.div>
     </div>
   )
