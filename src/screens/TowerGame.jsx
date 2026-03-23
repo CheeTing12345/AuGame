@@ -146,6 +146,20 @@ export default function TowerGame() {
     setPhase('failed', true)
   }, [towerResult, phase, setPhase])
 
+  // Host updates run stats whenever checking is entered (whoever clicked continue)
+  useEffect(() => {
+    if (phase !== 'checking' || !isHost) return
+    const next = currentRunBlocks + 1
+    setCurrentRunBlocks(next, true)
+    if (next > bestRun) setBestRun(next, true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase])
+
+  // Pan tower camera to base when game completes (reveal the tower)
+  useEffect(() => {
+    if (phase === 'complete') towerRef.current?.panToBase()
+  }, [phase])
+
   const getDeviation      = () => (!myAnswer || !partnerAnswer) ? 0 : Math.abs(myAnswer - partnerAnswer) / 4
   const getAlignmentScore = () => Math.round((1 - getDeviation()) * 100)
   const getAlignmentMsg   = () => {
@@ -177,11 +191,6 @@ export default function TowerGame() {
   }, [setTowerResult])
 
   const handleAfterDrop = () => {
-    if (isHost) {
-      const next = currentRunBlocks + 1
-      setCurrentRunBlocks(next, true)
-      if (next > bestRun) setBestRun(next, true)
-    }
     setPhase('checking', true)
   }
 
@@ -223,7 +232,7 @@ export default function TowerGame() {
     )
   }
 
-  const overlaySheetVisible = !['splash', 'dropping'].includes(phase)
+  const overlaySheetVisible = !['splash', 'dropping', 'complete'].includes(phase)
 
   return (
     // Fills the constrained #root completely
@@ -553,84 +562,6 @@ export default function TowerGame() {
                   </motion.div>
                 )}
 
-                {/* ══ Complete ══ */}
-                {phase === 'complete' && (
-                  <motion.div
-                    key="complete"
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    style={{ paddingTop: 8, paddingBottom: 4 }}
-                  >
-                    <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ type: 'spring', stiffness: 260, damping: 16 }}
-                        style={{ fontSize: 50, marginBottom: 12 }}
-                      >
-                        🎉
-                      </motion.div>
-                      <h3 className="font-serif" style={{ fontSize: 30, color: 'var(--text-1)', marginBottom: 6 }}>
-                        Game complete!
-                      </h3>
-                      <p style={{ color: 'var(--text-2)', fontSize: 14 }}>
-                        {QUESTION_COUNT} questions answered together
-                      </p>
-                    </div>
-
-                    {/* Stats */}
-                    <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-                      {[
-                        { label: 'Best run',   value: bestRun,        unit: 'blocks', color: 'var(--green)'  },
-                        { label: 'Avg sync',   value: `${avgAlignment}%`,            color: 'var(--violet)' },
-                        { label: 'Collapses',  value: totalCollapsed,                color: 'var(--danger)'  },
-                      ].map(stat => (
-                        <motion.div
-                          key={stat.label}
-                          className="card"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          style={{ flex: 1, textAlign: 'center', padding: '14px 6px' }}
-                        >
-                          <p style={{ fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>
-                            {stat.value}
-                          </p>
-                          {stat.unit && (
-                            <p style={{ color: 'var(--text-3)', fontSize: 10, marginTop: 2 }}>{stat.unit}</p>
-                          )}
-                          <p style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                            {stat.label}
-                          </p>
-                        </motion.div>
-                      ))}
-                    </div>
-
-                    <motion.button
-                      className="btn-primary"
-                      whileTap={{ scale: 0.98 }}
-                      style={{ background: 'var(--violet)', color: '#fff', marginBottom: 10 }}
-                      onClick={() => {
-                        const text = `🏗️ Common Ground\nBest run: ${bestRun} blocks · Avg sync: ${avgAlignment}% · Collapses: ${totalCollapsed}`
-                        navigator.share?.({ text }) ?? navigator.clipboard?.writeText(text)
-                      }}
-                    >
-                      Share result
-                    </motion.button>
-                    <motion.button
-                      className="btn-primary"
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => window.location.reload()}
-                      style={{ marginBottom: 4 }}
-                    >
-                      Play again
-                    </motion.button>
-                    <button className="btn-ghost" onClick={() => navigate('/')}>
-                      Back to home
-                    </button>
-                  </motion.div>
-                )}
-
               </AnimatePresence>
             </div>
           </motion.div>
@@ -692,6 +623,119 @@ export default function TowerGame() {
                 </motion.div>
               )}
             </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Complete: tower reveal + stats (no blur — tower stays visible) ── */}
+      <AnimatePresence>
+        {phase === 'complete' && (
+          <motion.div
+            key="complete"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}
+          >
+            {/* Gradient fade so tower peeks through the top */}
+            <div style={{
+              position:      'absolute', bottom: 0, left: 0, right: 0,
+              height:        '72%',
+              background:    'linear-gradient(to top, rgba(13,13,15,0.97) 55%, transparent)',
+              pointerEvents: 'none',
+            }} />
+
+            <motion.div
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0,  opacity: 1 }}
+              transition={{ delay: 0.4, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              style={{
+                position:      'relative', zIndex: 1,
+                padding:       '0 20px',
+                paddingBottom: 'max(28px, env(safe-area-inset-bottom, 28px))',
+              }}
+            >
+              {/* Header */}
+              <div style={{ textAlign: 'center', marginBottom: 20 }}>
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 260, damping: 16, delay: 0.5 }}
+                  style={{ fontSize: 44, marginBottom: 10 }}
+                >
+                  🎉
+                </motion.div>
+                <h3 className="font-serif" style={{ fontSize: 28, color: 'var(--text-1)', marginBottom: 4 }}>
+                  Game complete!
+                </h3>
+                <p style={{ color: 'var(--text-2)', fontSize: 13 }}>
+                  {QUESTION_COUNT} questions answered together
+                </p>
+              </div>
+
+              {/* Stats */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+                {[
+                  { label: 'Best run',  value: bestRun,           unit: 'blocks', color: 'var(--green)'  },
+                  { label: 'Avg sync',  value: `${avgAlignment}%`,                color: 'var(--violet)' },
+                  { label: 'Collapses', value: totalCollapsed,                    color: 'var(--danger)'  },
+                ].map((stat, i) => (
+                  <motion.div
+                    key={stat.label}
+                    className="card"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.55 + i * 0.08 }}
+                    style={{ flex: 1, textAlign: 'center', padding: '14px 6px' }}
+                  >
+                    <p style={{ fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>
+                      {stat.value}
+                    </p>
+                    {stat.unit && (
+                      <p style={{ color: 'var(--text-3)', fontSize: 10, marginTop: 2 }}>{stat.unit}</p>
+                    )}
+                    <p style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      {stat.label}
+                    </p>
+                  </motion.div>
+                ))}
+              </div>
+
+              <motion.button
+                className="btn-primary"
+                whileTap={{ scale: 0.98 }}
+                style={{ background: 'var(--violet)', color: '#fff', marginBottom: 10 }}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8 }}
+                onClick={() => {
+                  const text = `🏗️ Common Ground\nBest run: ${bestRun} blocks · Avg sync: ${avgAlignment}% · Collapses: ${totalCollapsed}`
+                  navigator.share?.({ text }) ?? navigator.clipboard?.writeText(text)
+                }}
+              >
+                Share result
+              </motion.button>
+              <motion.button
+                className="btn-primary"
+                whileTap={{ scale: 0.98 }}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.88 }}
+                onClick={() => window.location.reload()}
+                style={{ marginBottom: 4 }}
+              >
+                Play again
+              </motion.button>
+              <motion.button
+                className="btn-ghost"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.96 }}
+                onClick={() => navigate('/')}
+              >
+                Back to home
+              </motion.button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -215,6 +215,11 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
       setStackCount(0)
     },
 
+    // Smoothly pan camera back to show the base of the tower
+    panToBase: () => {
+      camTargetRef.current = 0
+    },
+
   }))
 
   // ── Render ───────────────────────────────────────────────────────────────────
