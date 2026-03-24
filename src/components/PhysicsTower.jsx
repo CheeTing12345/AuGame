@@ -55,7 +55,7 @@ function drawBlock(ctx, body, color, bw, bh) {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
+const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
   const containerRef  = useRef(null)
   const canvasRef     = useRef(null)
   const engineRef     = useRef(null)
@@ -69,6 +69,7 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
   const animRef       = useRef(null)
   const justAddedRef  = useRef(false)
   const blinkTimerRef = useRef(null)
+  const baselineYRef  = useRef(null)
 
   useEffect(() => { onFallRef.current = onTowerFall }, [onTowerFall])
 
@@ -156,16 +157,18 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
         ctx.restore()
       }
 
-      // Collapse detection
-      if (!hasFallenRef.current && entries.length > 0) {
+      // Collapse detection — host only
+      if (isHost && !hasFallenRef.current && entries.length > 0) {
+        const baseline = baselineYRef.current
         for (let i = 0; i < entries.length; i++) {
           const body = entries[i].body
           const outOfBounds = body.position.y > ch + 60 ||
                               body.position.x < -bw * 1.5 ||
                               body.position.x > cw + bw * 1.5
-          // Any previously-settled block tipping past ~23° = tower falling
-          const tipped = i < entries.length - 1 && Math.abs(body.angle) > 0.4
-          if (outOfBounds || tipped) {
+          // Non-first block falls back down to the tower's base level
+          const fellToBase = i > 0 && baseline !== null &&
+                             body.position.y >= baseline - bh * 0.4
+          if (outOfBounds || fellToBase) {
             hasFallenRef.current = true
             onFallRef.current()
             break
@@ -216,6 +219,11 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
         label:       'block',
       })
 
+      // When dropping the 2nd block, record the 1st block's settled Y as the tower baseline
+      if (bodiesRef.current.length === 1 && baselineYRef.current === null) {
+        baselineYRef.current = bodiesRef.current[0].body.position.y
+      }
+
       bodiesRef.current = [...bodiesRef.current, { body, color }]
       World.add(engineRef.current.world, body)
 
@@ -231,11 +239,33 @@ const PhysicsTower = forwardRef(({ onTowerFall }, ref) => {
       bodiesRef.current.forEach(({ body }) => World.remove(engineRef.current.world, body))
       bodiesRef.current    = []
       hasFallenRef.current = false
+      baselineYRef.current = null
       camRef.current       = 0
       camTargetRef.current = 0
     },
 
     panToBase: () => { camTargetRef.current = 0 },
+
+    getPhysicsSnapshot: () => {
+      return bodiesRef.current.map(({ body }) => [
+        body.position.x, body.position.y,
+        body.angle,
+        body.velocity.x, body.velocity.y,
+      ])
+    },
+
+    applyPhysicsSnapshot: (data) => {
+      if (!window.Matter || !Array.isArray(data)) return
+      const { Body } = window.Matter
+      const entries = bodiesRef.current
+      const len = Math.min(data.length, entries.length)
+      for (let i = 0; i < len; i++) {
+        const [x, y, angle, vx, vy] = data[i]
+        Body.setPosition(entries[i].body, { x, y })
+        Body.setAngle(entries[i].body, angle)
+        Body.setVelocity(entries[i].body, { x: vx, y: vy })
+      }
+    },
 
   }))
 
