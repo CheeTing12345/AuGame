@@ -75,124 +75,136 @@ const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
 
   // ── Engine init ──────────────────────────────────────────────────────────────
   useEffect(() => {
-    const container = containerRef.current
-    if (!container || !window.Matter) return
+    // Retry until Matter.js CDN script has loaded and container is laid out
+    let cleanupFn = () => {}
 
-    // clientWidth/clientHeight = content area only (no border), avoids 1px clip
-    const w      = container.clientWidth
-    const h      = container.clientHeight
-    const blockH = Math.max(32, Math.floor(h * 0.058))
-    const blockW = Math.round(w * WIDTH_RATIO)
-    dimsRef.current = { w, h, blockW, blockH }
-
-    // High-DPI canvas
-    const dpr    = window.devicePixelRatio || 1
-    const canvas = canvasRef.current
-    canvas.width        = w * dpr
-    canvas.height       = h * dpr
-    canvas.style.width  = w + 'px'
-    canvas.style.height = h + 'px'
-    const ctx = canvas.getContext('2d')
-    ctx.scale(dpr, dpr)
-
-    const { Engine, World, Bodies, Runner } = window.Matter
-    const engine = Engine.create({ gravity: { x: 0, y: 1.8 } })
-    engineRef.current = engine
-
-    // Ground: center at h+5, height 30 → top surface at h-10
-    // Narrow width (w+20) so blocks that slide off the edge fall freely
-    const ground = Bodies.rectangle(w / 2, h + 5, w + 20, 30, {
-      isStatic: true, label: 'ground', friction: 1,
-    })
-    World.add(engine.world, [ground])
-
-    const runner = Runner.create()
-    Runner.run(runner, engine)
-    runnerRef.current = runner
-
-    // ── Render loop ────────────────────────────────────────────────────────────
-    const loop = () => {
-      const entries = bodiesRef.current
-      const { blockW: bw, blockH: bh, h: ch, w: cw } = dimsRef.current
-
-      camRef.current += (camTargetRef.current - camRef.current) * 0.06
-      const cam = camRef.current
-
-      ctx.clearRect(0, 0, cw, ch)
-
-      // Blocks in camera space
-      ctx.save()
-      ctx.translate(0, cam)
-      for (const { body, color } of entries) {
-        drawBlock(ctx, body, color, bw, bh)
+    function tryInit() {
+      const container = containerRef.current
+      const w = container?.clientWidth  || 0
+      const h = container?.clientHeight || 0
+      if (!container || !window.Matter || !w || !h) {
+        const id = setTimeout(tryInit, 50)
+        cleanupFn = () => clearTimeout(id)
+        return
       }
-      ctx.restore()
 
-      // Empty placeholder
-      if (entries.length === 0) {
+      const blockH = Math.max(32, Math.floor(h * 0.058))
+      const blockW = Math.round(w * WIDTH_RATIO)
+      dimsRef.current = { w, h, blockW, blockH }
+
+      // High-DPI canvas
+      const dpr    = window.devicePixelRatio || 1
+      const canvas = canvasRef.current
+      canvas.width        = w * dpr
+      canvas.height       = h * dpr
+      canvas.style.width  = w + 'px'
+      canvas.style.height = h + 'px'
+      const ctx = canvas.getContext('2d')
+      ctx.scale(dpr, dpr)
+
+      const { Engine, World, Bodies, Runner } = window.Matter
+      const engine = Engine.create({ gravity: { x: 0, y: 1.8 } })
+      engineRef.current = engine
+
+      // Ground: center at h-9, height 30 → top surface at h-24
+      // 24 px clearance keeps the resting block fully inside the canvas.
+      // Narrow width (w+20) so blocks that slide off the edge fall freely.
+      const ground = Bodies.rectangle(w / 2, h - 9, w + 20, 30, {
+        isStatic: true, label: 'ground', friction: 1,
+      })
+      World.add(engine.world, [ground])
+
+      const runner = Runner.create()
+      Runner.run(runner, engine)
+      runnerRef.current = runner
+
+      // ── Render loop ──────────────────────────────────────────────────────────
+      const loop = () => {
+        const entries = bodiesRef.current
+        const { blockW: bw, blockH: bh, h: ch, w: cw } = dimsRef.current
+
+        camRef.current += (camTargetRef.current - camRef.current) * 0.06
+        const cam = camRef.current
+
+        ctx.clearRect(0, 0, cw, ch)
+
+        // Blocks in camera space
         ctx.save()
-        ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif'
-        ctx.fillStyle = 'rgba(255,255,255,0.18)'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'bottom'
-        ctx.fillText('Tower will be built here', cw / 2, ch - 14)
+        ctx.translate(0, cam)
+        for (const { body, color } of entries) {
+          drawBlock(ctx, body, color, bw, bh)
+        }
         ctx.restore()
-      }
 
-      // Stacked counter — top-left label, top-right number, blinks when block added
-      if (entries.length > 0) {
-        const blinking = justAddedRef.current
-        ctx.save()
-        ctx.font = '500 10px -apple-system, BlinkMacSystemFont, sans-serif'
-        ctx.fillStyle = blinking ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.3)'
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'top'
-        ctx.fillText('STACKED', 14, 14)
+        // Empty placeholder
+        if (entries.length === 0) {
+          ctx.save()
+          ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif'
+          ctx.fillStyle = 'rgba(255,255,255,0.18)'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'bottom'
+          ctx.fillText('Tower will be built here', cw / 2, ch - 14)
+          ctx.restore()
+        }
 
-        ctx.font = `800 ${blinking ? '26px' : '22px'} -apple-system, BlinkMacSystemFont, sans-serif`
-        ctx.fillStyle = blinking ? '#ffffff' : 'rgba(255,255,255,0.75)'
-        ctx.textAlign = 'right'
-        ctx.textBaseline = 'top'
-        ctx.fillText(entries.length, cw - 14, 10)
-        ctx.restore()
-      }
+        // Stacked counter — top-left label, top-right number, blinks when block added
+        if (entries.length > 0) {
+          const blinking = justAddedRef.current
+          ctx.save()
+          ctx.font = '500 10px -apple-system, BlinkMacSystemFont, sans-serif'
+          ctx.fillStyle = blinking ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.3)'
+          ctx.textAlign = 'left'
+          ctx.textBaseline = 'top'
+          ctx.fillText('STACKED', 14, 14)
 
-      // Collapse detection — host only
-      if (isHost && !hasFallenRef.current && entries.length > 0) {
-        const baseline = baselineYRef.current
-        for (let i = 0; i < entries.length; i++) {
-          const body = entries[i].body
-          const outOfBounds = body.position.y > ch + 60 ||
-                              body.position.x < -bw * 1.5 ||
-                              body.position.x > cw + bw * 1.5
-          // Non-first block falls back down to the tower's base level
-          const fellToBase = i > 0 && baseline !== null &&
-                             body.position.y >= baseline - bh * 0.4
-          if (outOfBounds || fellToBase) {
-            hasFallenRef.current = true
-            onFallRef.current()
-            break
+          ctx.font = `800 ${blinking ? '26px' : '22px'} -apple-system, BlinkMacSystemFont, sans-serif`
+          ctx.fillStyle = blinking ? '#ffffff' : 'rgba(255,255,255,0.75)'
+          ctx.textAlign = 'right'
+          ctx.textBaseline = 'top'
+          ctx.fillText(entries.length, cw - 14, 10)
+          ctx.restore()
+        }
+
+        // Collapse detection — host only
+        if (isHost && !hasFallenRef.current && entries.length > 0) {
+          const baseline = baselineYRef.current
+          for (let i = 0; i < entries.length; i++) {
+            const body = entries[i].body
+            const outOfBounds = body.position.y > ch + 60 ||
+                                body.position.x < -bw * 1.5 ||
+                                body.position.x > cw + bw * 1.5
+            // Non-first block falls back down to the tower's base level
+            const fellToBase = i > 0 && baseline !== null &&
+                               body.position.y >= baseline - bh * 0.4
+            if (outOfBounds || fellToBase) {
+              hasFallenRef.current = true
+              onFallRef.current()
+              break
+            }
           }
         }
-      }
 
-      // Camera: keep topmost block in upper portion of view
-      if (entries.length > 0) {
-        const topY = Math.min(...entries.map(e => e.body.position.y - bh / 2))
-        const pad  = ch * 0.22
-        if (topY < pad) camTargetRef.current = Math.max(0, pad - topY)
-      }
+        // Camera: keep topmost block in upper portion of view
+        if (entries.length > 0) {
+          const topY = Math.min(...entries.map(e => e.body.position.y - bh / 2))
+          const pad  = ch * 0.22
+          if (topY < pad) camTargetRef.current = Math.max(0, pad - topY)
+        }
 
+        animRef.current = requestAnimationFrame(loop)
+      }
       animRef.current = requestAnimationFrame(loop)
-    }
-    animRef.current = requestAnimationFrame(loop)
 
-    return () => {
-      cancelAnimationFrame(animRef.current)
-      Runner.stop(runner)
-      World.clear(engine.world, false)
-      Engine.clear(engine)
+      cleanupFn = () => {
+        cancelAnimationFrame(animRef.current)
+        Runner.stop(runner)
+        World.clear(engine.world, false)
+        Engine.clear(engine)
+      }
     }
+
+    tryInit()
+    return () => cleanupFn()
   }, [])
 
   // ── Exposed API ───────────────────────────────────────────────────────────────
@@ -246,24 +258,35 @@ const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
 
     panToBase: () => { camTargetRef.current = 0 },
 
+    // Snapshot uses normalised coords so it works across different screen sizes.
+    // X is normalised by canvas width (0=left, 1=right).
+    // Y is normalised relative to the ground surface (0=ground, negative=above).
     getPhysicsSnapshot: () => {
+      const { w, h } = dimsRef.current
+      if (!w || !h) return []
+      const groundY = h - 24   // ground top surface (matches Bodies.rectangle center h-9, half-height 15)
       return bodiesRef.current.map(({ body }) => [
-        body.position.x, body.position.y,
+        body.position.x / w,
+        (body.position.y - groundY) / h,   // negative when above ground
         body.angle,
-        body.velocity.x, body.velocity.y,
+        body.velocity.x / w,
+        body.velocity.y / h,
       ])
     },
 
     applyPhysicsSnapshot: (data) => {
       if (!window.Matter || !Array.isArray(data)) return
       const { Body } = window.Matter
+      const { w, h } = dimsRef.current
+      if (!w || !h) return
+      const groundY = h - 24
       const entries = bodiesRef.current
       const len = Math.min(data.length, entries.length)
       for (let i = 0; i < len; i++) {
-        const [x, y, angle, vx, vy] = data[i]
-        Body.setPosition(entries[i].body, { x, y })
+        const [normX, normY, angle, normVx, normVy] = data[i]
+        Body.setPosition(entries[i].body, { x: normX * w, y: groundY + normY * h })
         Body.setAngle(entries[i].body, angle)
-        Body.setVelocity(entries[i].body, { x: vx, y: vy })
+        Body.setVelocity(entries[i].body, { x: normVx * w, y: normVy * h })
       }
     },
 
