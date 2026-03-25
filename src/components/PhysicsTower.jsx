@@ -129,10 +129,11 @@ const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
       const prev     = blocksRef.current[blocksRef.current.length - 1]
       const prevSize = prev ? prev.size : BASE_SIZE
 
-      // Floor the per-step reduction at 25 % so a single bad answer can't
-      // instantly shrink the block to nothing.
-      const effectiveScore = Math.max(MIN_STEP_RATIO, alignScore)
-      const rawSize        = prevSize * effectiveScore
+      // Halve the visual reduction: keep (1 - (1-score)/2) of previous size.
+      // e.g. 75% score → only 12.5% reduction, not 25%.
+      // Worst case (0% score) → 50% reduction. MIN_STEP_RATIO is a safety floor.
+      const sizeRatio = 0.5 + alignScore * 0.5
+      const rawSize   = prevSize * Math.max(MIN_STEP_RATIO, sizeRatio)
 
       // Check if this block hits or passes the 5 % failure threshold.
       const isFail  = rawSize <= FAIL_SIZE
