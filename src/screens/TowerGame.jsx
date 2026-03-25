@@ -136,7 +136,7 @@ export default function TowerGame() {
     const frame = requestAnimationFrame(() => {
       towerRef.current?.dropBlock(offsetX, alignScore)
     })
-    const t = setTimeout(() => setShowContinueBtn(true), 3500)
+    const t = setTimeout(() => setShowContinueBtn(true), 3000)
     return () => { cancelAnimationFrame(frame); clearTimeout(t) }
   }, [phase, questionIndex, myAnswer, partnerAnswer, players])
 
