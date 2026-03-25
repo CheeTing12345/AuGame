@@ -140,30 +140,6 @@ export default function TowerGame() {
     return () => { cancelAnimationFrame(frame); clearTimeout(t) }
   }, [phase, questionIndex, myAnswer, partnerAnswer, players])
 
-  // Host: broadcast physics snapshot every 100ms while a block is dropping
-  useEffect(() => {
-    if (phase !== 'dropping' || !isHost) return
-    const id = setInterval(() => {
-      const snapshot = towerRef.current?.getPhysicsSnapshot()
-      if (snapshot && snapshot.length > 0)
-        myPlayer().setState('physicsSync', JSON.stringify(snapshot))
-    }, 100)
-    return () => clearInterval(id)
-  }, [phase, isHost])
-
-  // Guest: apply host's physics snapshot every 100ms while a block is dropping
-  useEffect(() => {
-    if (phase !== 'dropping' || isHost) return
-    const id = setInterval(() => {
-      const raw = partner?.getState('physicsSync')
-      if (!raw) return
-      try {
-        towerRef.current?.applyPhysicsSnapshot(JSON.parse(raw))
-      } catch {}
-    }, 100)
-    return () => clearInterval(id)
-  }, [phase, isHost])
-
   // Sync tower fall → failed phase
   useEffect(() => {
     if (towerResult !== 'fallen' || phase !== 'dropping') return
