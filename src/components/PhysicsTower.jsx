@@ -2,10 +2,12 @@ import { useRef, useEffect, useImperativeHandle, forwardRef } from 'react'
 import * as THREE from 'three'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const BASE_SIZE = 8       // width/depth of the first block (world units)
-const BLOCK_H   = 1.5     // height of every block (world units)
-const MIN_SIZE  = BASE_SIZE * 0.02   // 2 % floor so blocks never disappear entirely
-const D_UNITS   = 14      // half-extent for the orthographic camera frustum
+const BASE_SIZE      = 8      // width/depth of the base block (world units)
+const BLOCK_H        = 1.5    // height of every block (world units)
+const MIN_STEP_RATIO = 0.25   // each block is at minimum 25 % of the previous one
+const FAIL_SIZE      = BASE_SIZE * 0.05   // 5 % of base → tower fails
+const D_UNITS        = 14     // half-extent for the orthographic camera frustum
+const CAM_OFFSET     = 4      // camera sits this many units above its lookAt point
 
 // ── Component ─────────────────────────────────────────────────────────────────
 const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
@@ -14,9 +16,10 @@ const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
   const sceneRef      = useRef(null)
   const cameraRef     = useRef(null)
   const animFrameRef  = useRef(null)
-  const blocksRef     = useRef([])      // { mesh, size, targetY }[]
-  const camTargetYRef = useRef(4)       // smooth camera target
+  const blocksRef     = useRef([])          // { mesh, size, targetY }[]
+  const camTargetYRef = useRef(CAM_OFFSET)  // camera position Y target
   const onFallRef     = useRef(onTowerFall)
+  const failTimerRef  = useRef(null)        // setTimeout id for delayed fail callback
 
   useEffect(() => { onFallRef.current = onTowerFall }, [onTowerFall])
 
@@ -40,14 +43,16 @@ const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
     const scene = new THREE.Scene()
     sceneRef.current = scene
 
-    // Orthographic isometric camera (same setup as the reference game)
+    // Orthographic isometric camera
     const aspect = w / h
     const camera = new THREE.OrthographicCamera(
       -D_UNITS * aspect, D_UNITS * aspect,
        D_UNITS,          -D_UNITS,
       -100, 1000
     )
-    camera.position.set(2, 6, 2)
+    // Camera sits CAM_OFFSET above its lookAt target.
+    // Initial lookAt = (0, 0, 0), so camera starts at y = CAM_OFFSET.
+    camera.position.set(2, CAM_OFFSET, 2)
     camera.lookAt(0, 0, 0)
     cameraRef.current = camera
 
@@ -57,7 +62,7 @@ const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
     const ambLight = new THREE.AmbientLight(0xffffff, 0.4)
     scene.add(dirLight, ambLight)
 
-    // Base platform block (index 0, always full size, dark colour)
+    // Base platform (always full size, dark colour, never removed)
     const baseGeo  = new THREE.BoxGeometry(BASE_SIZE, BLOCK_H, BASE_SIZE)
     const baseMat  = new THREE.MeshLambertMaterial({ color: 0x333344 })
     const baseMesh = new THREE.Mesh(baseGeo, baseMat)
@@ -69,10 +74,13 @@ const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
     const animate = () => {
       animFrameRef.current = requestAnimationFrame(animate)
 
-      // Camera smoothly tracks target Y
+      // Smooth camera position Y
       camera.position.y += (camTargetYRef.current - camera.position.y) * 0.05
 
-      // Each new block lerps to its resting Y (drop-from-above effect)
+      // Keep lookAt CAM_OFFSET below camera so the isometric angle stays constant
+      camera.lookAt(0, camera.position.y - CAM_OFFSET, 0)
+
+      // Lerp each block down to its resting Y
       for (const b of blocksRef.current) {
         if (Math.abs(b.mesh.position.y - b.targetY) > 0.01) {
           b.mesh.position.y += (b.targetY - b.mesh.position.y) * 0.12
@@ -99,14 +107,15 @@ const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
     ro.observe(container)
 
     return () => {
+      clearTimeout(failTimerRef.current)
       cancelAnimationFrame(animFrameRef.current)
       ro.disconnect()
       renderer.dispose()
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement)
       }
-      blocksRef.current    = []
-      camTargetYRef.current = 4
+      blocksRef.current     = []
+      camTargetYRef.current = CAM_OFFSET
     }
   }, [])
 
@@ -119,44 +128,58 @@ const PhysicsTower = forwardRef(({ onTowerFall, isHost = false }, ref) => {
 
       const prev     = blocksRef.current[blocksRef.current.length - 1]
       const prevSize = prev ? prev.size : BASE_SIZE
-      // Each block is alignScore × the previous block's size, minimum 2 % of BASE_SIZE
-      const newSize  = Math.max(MIN_SIZE, prevSize * alignScore)
 
-      const yIndex  = blocksRef.current.length   // 0 = base already placed
+      // Floor the per-step reduction at 25 % so a single bad answer can't
+      // instantly shrink the block to nothing.
+      const effectiveScore = Math.max(MIN_STEP_RATIO, alignScore)
+      const rawSize        = prevSize * effectiveScore
+
+      // Check if this block hits or passes the 5 % failure threshold.
+      const isFail  = rawSize <= FAIL_SIZE
+      const newSize = isFail ? FAIL_SIZE : rawSize   // show block at exactly 5 % if failing
+
+      const yIndex  = blocksRef.current.length
       const targetY = yIndex * BLOCK_H
 
-      const hue  = alignScore * 120   // red (0°) → green (120°)
+      const hue   = alignScore * 120   // 0° = red, 120° = green
       const color = new THREE.Color(`hsl(${hue}, 72%, 55%)`)
 
       const geometry = new THREE.BoxGeometry(newSize, BLOCK_H, newSize)
       const material = new THREE.MeshLambertMaterial({ color })
       const mesh     = new THREE.Mesh(geometry, material)
 
-      // Start 20 units above final position — lerps down in the render loop
+      // Start above and lerp down
       mesh.position.set(0, targetY + 20, 0)
       scene.add(mesh)
-
       blocksRef.current.push({ mesh, size: newSize, targetY })
 
-      // Pan camera up to keep the latest block in view
-      camTargetYRef.current = targetY + 6
+      // Pan camera up
+      camTargetYRef.current = targetY + CAM_OFFSET + 2
+
+      // Trigger fail after the block has had time to visually land (~900 ms)
+      if (isFail && isHost) {
+        clearTimeout(failTimerRef.current)
+        failTimerRef.current = setTimeout(() => onFallRef.current(), 900)
+      }
     },
 
     resetBlocks: () => {
       const scene = sceneRef.current
       if (!scene) return
+      clearTimeout(failTimerRef.current)
 
-      // Remove all blocks except the base (index 0)
+      // Dispose and remove all stacked blocks, keep the base (index 0)
       for (let i = 1; i < blocksRef.current.length; i++) {
-        scene.remove(blocksRef.current[i].mesh)
-        blocksRef.current[i].mesh.geometry.dispose()
-        blocksRef.current[i].mesh.material.dispose()
+        const { mesh } = blocksRef.current[i]
+        scene.remove(mesh)
+        mesh.geometry.dispose()
+        mesh.material.dispose()
       }
-      blocksRef.current    = blocksRef.current.slice(0, 1)
-      camTargetYRef.current = 4
+      blocksRef.current     = blocksRef.current.slice(0, 1)
+      camTargetYRef.current = CAM_OFFSET
     },
 
-    panToBase: () => { camTargetYRef.current = 4 },
+    panToBase: () => { camTargetYRef.current = CAM_OFFSET },
 
   }))
 
