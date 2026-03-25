@@ -57,7 +57,7 @@ export default function TowerGame() {
 
   // Guard
   useEffect(() => {
-    try { myPlayer() } catch { navigate('/create-join') }
+    try { myPlayer() } catch { navigate('/') }
   }, [navigate])
 
   // Warn on browser refresh / tab close
@@ -85,6 +85,13 @@ export default function TowerGame() {
       setPartnerLeft(true)
     }
   }, [players.length, phase])
+
+  // Auto-navigate home when partner leaves or session expires
+  useEffect(() => {
+    if (!partnerLeft) return
+    const t = setTimeout(() => navigate('/'), 3000)
+    return () => clearTimeout(t)
+  }, [partnerLeft, navigate])
 
   // Host picks questions once
   useEffect(() => {
@@ -542,7 +549,7 @@ export default function TowerGame() {
                       💥
                     </motion.div>
                     <h3 style={{ fontSize: 26, fontWeight: 800, color: 'var(--danger)', marginBottom: 6 }}>
-                      Tower collapsed!
+                      You ran out of space!
                     </h3>
                     <p style={{ color: 'var(--text-2)', fontSize: 14, marginBottom: 4 }}>
                       Best run: <strong>{bestRun}</strong> block{bestRun !== 1 ? 's' : ''}

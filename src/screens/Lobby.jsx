@@ -20,7 +20,7 @@ export default function Lobby() {
   const roomCode = getRoomCode()
 
   useEffect(() => {
-    try { myPlayer() } catch { navigate('/create-join') }
+    try { myPlayer() } catch { navigate('/') }
   }, [navigate])
 
   // When host starts → navigate to rules (not /game)

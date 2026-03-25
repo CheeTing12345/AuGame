@@ -36,7 +36,7 @@ export default function Rules() {
   const [understood, setUnderstood] = useMultiplayerState('rulesUnderstood', false)
 
   useEffect(() => {
-    try { myPlayer() } catch { navigate('/create-join') }
+    try { myPlayer() } catch { navigate('/') }
   }, [navigate])
 
   // Navigate to game once both players have accepted

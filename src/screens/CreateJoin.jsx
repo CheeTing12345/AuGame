@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import { insertCoin, myPlayer } from 'playroomkit'
@@ -16,6 +16,13 @@ export default function CreateJoin() {
   const [loading, setLoading] = useState(false)
 
   const playerName = localStorage.getItem('playerName') || 'Player'
+
+  // Auto-refresh if connecting takes more than 5 seconds
+  useEffect(() => {
+    if (!loading) return
+    const t = setTimeout(() => window.location.reload(), 5000)
+    return () => clearTimeout(t)
+  }, [loading])
 
   const handleCreateRoom = async () => {
     setLoading(true)
