@@ -11,7 +11,8 @@ import PhysicsTower from '../components/PhysicsTower'
 import SliderInput from '../components/SliderInput'
 import { allQuestions } from '../data/questions'
 
-const QUESTION_COUNT  = 20
+const QUESTION_COUNT  = 25
+const HOME_URL        = 'https://cheeting12345.github.io/AuGame/'
 const MAX_OFFSET_RATIO = 0.35
 
 function pickQuestions(n) {
@@ -57,7 +58,7 @@ export default function TowerGame() {
 
   // Guard
   useEffect(() => {
-    try { myPlayer() } catch { navigate('/') }
+    try { myPlayer() } catch { window.location.replace(HOME_URL) }
   }, [navigate])
 
   // Warn on browser refresh / tab close
@@ -89,7 +90,7 @@ export default function TowerGame() {
   // Auto-navigate home when partner leaves or session expires
   useEffect(() => {
     if (!partnerLeft) return
-    const t = setTimeout(() => navigate('/'), 3000)
+    const t = setTimeout(() => window.location.replace(HOME_URL), 3000)
     return () => clearTimeout(t)
   }, [partnerLeft, navigate])
 
@@ -748,7 +749,7 @@ export default function TowerGame() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.88 }}
-                onClick={() => window.location.reload()}
+                onClick={() => window.location.replace(HOME_URL)}
                 style={{ marginBottom: 4 }}
               >
                 Play again
@@ -758,7 +759,7 @@ export default function TowerGame() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.96 }}
-                onClick={() => navigate('/')}
+                onClick={() => window.location.replace(HOME_URL)}
               >
                 Back to home
               </motion.button>
@@ -813,7 +814,7 @@ export default function TowerGame() {
                 </button>
                 <button
                   className="btn-ghost"
-                  onClick={() => navigate('/')}
+                  onClick={() => window.location.replace(HOME_URL)}
                 >
                   Leave anyway
                 </button>
@@ -854,7 +855,7 @@ export default function TowerGame() {
               </p>
               <button
                 className="btn-primary"
-                onClick={() => navigate('/')}
+                onClick={() => window.location.replace(HOME_URL)}
                 style={{ background: 'var(--violet)', color: '#fff' }}
               >
                 Quit to home

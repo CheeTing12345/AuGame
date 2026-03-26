@@ -36,7 +36,7 @@ export default function Rules() {
   const [understood, setUnderstood] = useMultiplayerState('rulesUnderstood', false)
 
   useEffect(() => {
-    try { myPlayer() } catch { navigate('/') }
+    try { myPlayer() } catch { window.location.replace('https://cheeting12345.github.io/AuGame/') }
   }, [navigate])
 
   // Navigate to game once both players have accepted

@@ -20,7 +20,7 @@ export default function CreateJoin() {
   // Auto-refresh if connecting takes more than 5 seconds
   useEffect(() => {
     if (!loading) return
-    const t = setTimeout(() => window.location.reload(), 5000)
+    const t = setTimeout(() => window.location.replace('https://cheeting12345.github.io/AuGame/'), 5000)
     return () => clearTimeout(t)
   }, [loading])
 
@@ -169,7 +169,7 @@ export default function CreateJoin() {
           </motion.button>
         </div>
 
-        <button className="btn-ghost" onClick={() => navigate('/')}>
+        <button className="btn-ghost" onClick={() => window.location.replace('https://cheeting12345.github.io/AuGame/')}>
           ← Back
         </button>
       </motion.div>
