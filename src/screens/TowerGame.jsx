@@ -265,6 +265,7 @@ export default function TowerGame() {
 
   const handleResetAfterFall = () => {
     towerRef.current?.resetBlocks()
+    setTowerResult(null, true)   // clear stale fail state so next drop doesn't re-trigger
     if (isHost) {
       setTotalCollapsed(totalCollapsed + 1, true)
       setCurrentRunBlocks(0, true)
